@@ -1,0 +1,13 @@
+# Python dependencies for building, running, and testing the notebooks
+# in notebooks/. Install into a venv (see README.md), not system-wide.
+numpy==2.5.2
+plotly==6.9.0
+ipywidgets==8.1.9
+jupyterlab==4.6.3
+notebook==7.6.2
+ipykernel==7.3.0
+nbformat==5.11.1
+
+# Only needed to export static PNGs for visual review during development
+# (fig.write_image(...)) -- not required to run or test a notebook itself.
+kaleido==1.3.0
