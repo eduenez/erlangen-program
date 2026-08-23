@@ -1,0 +1,15 @@
+{
+  "name": "erlangen-program",
+  "version": "1.0.0",
+  "description": "A sequence of self-contained, interactive lessons on groups of geometric transformations — an accessible, modern introduction to the philosophy behind Klein's *Erlangen Program*: a geometry is defined by its group of transformations, and different groups (isometries, similarities, affine maps, projective/Möbius maps) give genuinely different geometries on the same underlying space.",
+  "scripts": {
+    "test": "node scripts/test_lattice_html.js"
+  },
+  "keywords": [],
+  "author": "Eduardo Dueñez",
+  "license": "CC-BY-4.0",
+  "type": "commonjs",
+  "dependencies": {
+    "playwright": "^1.62.1"
+  }
+}
