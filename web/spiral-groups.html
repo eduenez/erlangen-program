@@ -49,7 +49,7 @@
   #btnPlay { width: 30px; height: 24px; border: 1px solid #bbb; border-radius: 4px;
              background: #f4f4f6; cursor: pointer; }
   #tReadout { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.8rem; width: 62px; }
-  .instructions { margin: 0.45rem 0; padding-left: 1.15rem; font-size: 0.95rem; color: #222; }
+  .instructions { margin: 0.45rem 0; padding-left: 1.15rem; font-size: 0.75rem; color: #222; }
   .instructions li { margin: 0.18rem 0; }
   #btnNotes { margin-top: 0.45rem; border: 1px solid #bbb; border-radius: 4px;
               background: #f4f4f6; cursor: pointer; padding: 0.15rem 0.5rem; font-size: 0.8rem; }
@@ -93,18 +93,22 @@
       revolution. When <i>n</i> = 1, the group <i>G</i> = ⟨<i>a</i>⟩ is an infinite
       cyclic group of spiral similarities.</h2>
   <ul class="instructions">
-    <li>Drag the gold point <i>a</i> to change the group.</li>
-    <li>Drag the white point <i>z₀</i> to move the flag.</li>
+    <li>Click one of the boxes 1, 2, …, 12 below to choose <i>n</i>.</li>
+    <li>Drag the gold point <i>a</i> to choose its value.</li>
+    <li>All points of the group <i>G</i> (powers of <i>a</i>) are shown if “the group <i>G</i>” is checked).</li>
+    <li>The <i>G</i>-orbit of the white flag changes as its pinned "initial" position <i>z₀</i> is dragged
+    (only if “orbit of the flag” is checked).</li>
     <li>Drag empty space to pan; scroll to zoom.</li>
   </ul>
-  <div class="row">generator&nbsp; <span id="aReadout"></span></div>
-  <div class="row" id="nButtons"><!-- n = 1 … 12 (§4) --></div>
+  <div class="row">Generator <span id="aReadout"></span></div>
+  <div class="row" id="nButtons">Order <i>n =</i><!-- n = 1 … 12 (§4) --></div>
   <label class="toggle"><input type="checkbox" id="chkOrbit" checked>
-    orbit of the flag (drag its anchor z₀)</label>
+    Show orbit of the flag (move it by dragging the anchor point z₀)</label>
   <label class="toggle"><input type="checkbox" id="chkGroup">
-    the group itself (orbit of the point 1)</label>
+    Show the group <i>G</i> = {orbit of the point 1}
+(drag the generator point <i>a</i> and/or click a box to select a value of <i>n</i>).</label>
   <div class="row">
-    <div style="font-size:0.8rem; color:#555;">one-parameter subgroup&nbsp; <i>z</i> ↦ e<sup>tα</sup>·<i>z</i></div>
+    <div style="font-size:0.8rem; color:#555;">One-parameter subgroup&nbsp; <i>z</i> ↦ e<sup>tα</sup>·<i>z</i></div>
     <div class="sliderRow">
       <button id="btnPlay" title="play / pause">▶</button>
       <input type="range" id="tSlider" min="-3" max="3" step="0.01" value="0" list="tticks">
