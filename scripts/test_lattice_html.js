@@ -211,6 +211,25 @@ const dist = (p, q) => Math.max(Math.abs(p[0] - q[0]), Math.abs(p[1] - q[1]), Ma
   await page.evaluate('window.lattice.setT(1.5)');
   checkNear('one-parameter time', await page.evaluate('window.lattice.state.t'), 1.5, 1e-9);
 
+  // ---- the animated subgroup direction t·(m·a + n·b) ----
+  await page.evaluate('window.lattice.setFlow(2, -1)');
+  {
+    const st = await page.evaluate('JSON.parse(JSON.stringify(window.lattice.state))');
+    check('flow coefficient m', st.flowM, 2);
+    check('flow coefficient n', st.flowN, -1);
+    check('flow selectors follow the state',
+      await page.evaluate("document.getElementById('flowM').value + ',' +" +
+                          "document.getElementById('flowN').value"), '2,-1');
+    checkTrue('flow readout names the subgroup',
+      /2a\s*−\s*b/.test(await page.evaluate("document.getElementById('flowReadout').textContent")));
+  }
+  await page.evaluate('window.lattice.setFlow(9, -9)');   // out of range: clamped
+  {
+    const st = await page.evaluate('JSON.parse(JSON.stringify(window.lattice.state))');
+    check('flow coefficients are clamped (m)', st.flowM, 2);
+    check('flow coefficients are clamped (n)', st.flowN, -2);
+  }
+
   // ---- no page or console errors throughout ----
   checkTrue('no console/page errors', errors.length === 0, JSON.stringify(errors));
 
