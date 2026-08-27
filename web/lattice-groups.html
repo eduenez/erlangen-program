@@ -687,13 +687,13 @@ function drawGroupPicture(dv) {
   let drawn = 0;
   for (let m = r.mMin; m <= r.mMax; m++) {
     for (let n = r.nMin; n <= r.nMax; n++) {
+      if (m === 0 && n === 0) continue;   // the identity: marked permanently, elsewhere
       if (++drawn > DOT_CAP) return;
       const q = toPx(groupElem(dv, m, n));
       if (q.x < -10 || q.x > W + 10 || q.y < -10 || q.y > H + 10) continue;
-      const isIdentity = (m === 0 && n === 0);
       ctx.beginPath();
-      ctx.arc(q.x, q.y, isIdentity ? 4.5 : 3, 0, TWO_PI);
-      ctx.fillStyle = isIdentity ? '#111' : '#222';
+      ctx.arc(q.x, q.y, 3, 0, TWO_PI);
+      ctx.fillStyle = '#222';
       ctx.strokeStyle = 'rgba(255,255,255,0.9)';
       ctx.lineWidth = 1.5;
       ctx.fill(); ctx.stroke();
@@ -754,7 +754,11 @@ function drawOneParameter(dv) {
 
 /* ---------------- draggable handles ---------------- */
 
-function drawHandle(z, fill, ring, label) {
+// The origin and the two generators and the anchor are all drawn alike: a
+// heavy dot with a black, white-bordered letter to its northeast.  `below`
+// drops the label to the southeast instead, which is what a generator needs
+// once it has snapped to 0 and its handle sits on top of the origin marker.
+function drawHandle(z, fill, ring, label, below) {
   const q = toPx(z);
   ctx.beginPath();
   ctx.arc(q.x, q.y, 6.5, 0, TWO_PI);
@@ -762,15 +766,15 @@ function drawHandle(z, fill, ring, label) {
   ctx.strokeStyle = ring;
   ctx.lineWidth = 2;
   ctx.fill(); ctx.stroke();
-  // Black letter with a white border, placed to the northeast.
+  const lx = q.x + 10, ly = q.y + (below ? 24 : -10);
   ctx.save();
   ctx.font = 'bold italic 26px system-ui, sans-serif';
   ctx.lineJoin = 'round';
   ctx.lineWidth = 5;
   ctx.strokeStyle = 'rgba(255,255,255,0.95)';
-  ctx.strokeText(label, q.x + 10, q.y - 10);
+  ctx.strokeText(label, lx, ly);
   ctx.fillStyle = '#111';
-  ctx.fillText(label, q.x + 10, q.y - 10);
+  ctx.fillText(label, lx, ly);
   ctx.restore();
 }
 
@@ -804,8 +808,13 @@ function draw() {
   // them and the ghost becomes visible.
   drawOneParameter(dv);
   drawFigure({ re: 0, im: 0 }, state.z0, FIG_SCALE, '#fff', true);   // the base copy
-  drawHandle(state.a, '#d4a017', '#fff', 'a');
-  drawHandle(state.b, '#3b7dd8', '#fff', 'b');
+  // The origin is marked permanently, whether or not the group picture is on:
+  // it is the identity of the group and the basepoint every generator is drawn
+  // from.  A generator that has snapped to 0 lands on top of it, so that one's
+  // label is dropped below to keep both readable.
+  drawHandle({ re: 0, im: 0 }, '#111', '#fff', '0');
+  drawHandle(state.a, '#d4a017', '#fff', 'a', isZero(state.a));
+  drawHandle(state.b, '#3b7dd8', '#fff', 'b', isZero(state.b));
   drawHandle(state.z0, '#fff', '#111', 'z₀');
 
   // — readouts —
