@@ -246,9 +246,25 @@ const FIG_TEMPLATE = [    // parts in template coordinates, anchored at the orig
 const HUE_AMP  = 0.42;   // amplitude of the R,G hue circle about mid-gray 0.5
 const BLUE_MIN = 0.35;   // blue channel at v = 0; at v = 1 it is 1 − BLUE_MIN
 
-// Boundary curves.
-const LINE_HALF_PX = 0.9;                 // half-width of boundary lines, in pixels
-const LINE_COLOR   = [0.10, 0.08, 0.14];  // near-black plum
+// Boundary lines of the fundamental region and its translates: white, which
+// separates them from the black axes drawn over them on the overlay.
+const LINE_HALF_PX = 0.9;              // half-width of boundary lines, in pixels
+const LINE_COLOR   = [1.0, 1.0, 1.0];
+
+// Typography and weight of the overlay.  The generators, the anchor, and the
+// origin are lettered in the interface's own face; the axis marks 1 and i are
+// set in a serif italic, the usual convention for mathematical symbols.
+const HANDLE_FONT = 'bold italic 26px system-ui, sans-serif';
+const AXIS_FONT   = 'bold italic 24px "Times New Roman", Georgia, serif';
+const AXIS_COLOR  = 'rgba(10,10,20,0.9)';
+const AXIS_WIDTH  = 2.5;
+const TICK_PX     = 6;                 // half-length of the tick marks at ±1, ±i
+
+// The gliding ghost and the trajectory it glides along share a color, so that
+// the two read as one object; the boundary lines being white, the trajectory
+// may no longer be white itself.
+const GHOST_COLOR = 'rgba(190,0,110,0.9)';
+const GHOST_PATH  = 'rgba(190,0,110,0.55)';
 
 // Overlay culling and display.
 const PIXEL_CULL   = 1.0;   // skip orbit copies whose size falls below this many px
@@ -560,8 +576,8 @@ function capRange(lo, hi, maxCount) {
 /* ---------------- axes and the forbidden locus ---------------- */
 
 function drawAxes() {
-  ctx.strokeStyle = 'rgba(25,25,35,0.45)';
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = AXIS_COLOR;
+  ctx.lineWidth = AXIS_WIDTH;
   const o = toPx({ re: 0, im: 0 });
   ctx.beginPath();
   ctx.moveTo(0, o.y); ctx.lineTo(W, o.y);
@@ -570,14 +586,24 @@ function drawAxes() {
   ctx.beginPath();
   for (const p of [{re:1,im:0},{re:-1,im:0},{re:0,im:1},{re:0,im:-1}]) {
     const q = toPx(p);
-    if (p.im === 0) { ctx.moveTo(q.x, q.y - 4); ctx.lineTo(q.x, q.y + 4); }
-    else            { ctx.moveTo(q.x - 4, q.y); ctx.lineTo(q.x + 4, q.y); }
+    if (p.im === 0) { ctx.moveTo(q.x, q.y - TICK_PX); ctx.lineTo(q.x, q.y + TICK_PX); }
+    else            { ctx.moveTo(q.x - TICK_PX, q.y); ctx.lineTo(q.x + TICK_PX, q.y); }
   }
   ctx.stroke();
-  ctx.fillStyle = 'rgba(25,25,35,0.6)';
-  ctx.font = '16px system-ui, sans-serif';
-  const one = toPx({ re: 1, im: 0 }); ctx.fillText('1', one.x + 4, one.y + 19);
-  const eye = toPx({ re: 0, im: 1 }); ctx.fillText('i', eye.x + 8, eye.y + 5);
+  // The marks 1 and i, lettered like the other symbols on the plane: black,
+  // white-bordered so they stay legible over any tile color.
+  ctx.save();
+  ctx.font = AXIS_FONT;
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+  ctx.fillStyle = '#111';
+  const one = toPx({ re: 1, im: 0 }), eye = toPx({ re: 0, im: 1 });
+  for (const [txt, x, y] of [['1', one.x + 6, one.y + 26], ['i', eye.x + 11, eye.y + 6]]) {
+    ctx.strokeText(txt, x, y);
+    ctx.fillText(txt, x, y);
+  }
+  ctx.restore();
 }
 
 // While a generator is dragged, show what it may not do: the line through 0
@@ -735,12 +761,13 @@ function drawOneParameter(dv) {
   range = clipSlab(state.z0.re, g.re, vp.cx - hw, vp.cx + hw, range);
   if (range) range = clipSlab(state.z0.im, g.im, vp.cy - hh, vp.cy + hh, range);
   if (range) {
-    // the faint continuous orbit { z₀ + t·a : t ∈ ℝ } — a straight line, drawn
-    // white so it is not mistaken for the dark tile boundaries
+    // the continuous orbit { z₀ + t·(m·a + n·b) : t ∈ ℝ } — a straight line, in
+    // the ghost's own color, so that it is taken neither for a tile boundary
+    // (white) nor for an axis (black)
     const p1 = toPx(cAdd(state.z0, cScale(g, range[0])));
     const p2 = toPx(cAdd(state.z0, cScale(g, range[1])));
-    ctx.strokeStyle = 'rgba(255,255,255,0.65)';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = GHOST_PATH;
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y);
     ctx.stroke();
@@ -748,7 +775,7 @@ function drawOneParameter(dv) {
   // the ghost image z₀ + t·a, gliding with the slider
   ctx.save();
   ctx.setLineDash([4, 3]);
-  drawFigure(cScale(g, state.t), state.z0, FIG_SCALE, 'rgba(190,0,110,0.9)', true);
+  drawFigure(cScale(g, state.t), state.z0, FIG_SCALE, GHOST_COLOR, true);
   ctx.restore();
 }
 
@@ -768,7 +795,7 @@ function drawHandle(z, fill, ring, label, below) {
   ctx.fill(); ctx.stroke();
   const lx = q.x + 10, ly = q.y + (below ? 24 : -10);
   ctx.save();
-  ctx.font = 'bold italic 26px system-ui, sans-serif';
+  ctx.font = HANDLE_FONT;
   ctx.lineJoin = 'round';
   ctx.lineWidth = 5;
   ctx.strokeStyle = 'rgba(255,255,255,0.95)';
