@@ -269,12 +269,23 @@ const GHOST_PATH  = 'rgba(190,0,110,0.55)';
 // Overlay culling and display.
 const PIXEL_CULL   = 1.0;   // skip orbit copies whose size falls below this many px
 const DOT_CAP      = 576;   // hard cap on group-picture dots
-// The range of coefficients the interface exposes: the group dots m·a + n·b
-// are labeled for |m|, |n| ≤ COEF_MAX, and the one-parameter subgroup driving
-// the animation is chosen as t·(m·a + n·b) over the same range.
+// The range of coefficients the direction selectors expose: the one-parameter
+// subgroup driving the animation is chosen as t·(m·a + n·b) over this range.
 const COEF_MAX     = 2;
 const FIG_AXIS_CAP = Math.floor(Math.sqrt(FIG_CAP));   // per-axis cap, so the product fits
 const DOT_AXIS_CAP = Math.floor(Math.sqrt(DOT_CAP));
+
+// Labels and dots of the group picture.  Every visible lattice point is named,
+// at a size following the *room* available — here the distance between nearest
+// lattice points, which is the same everywhere and so depends only on the zoom.
+// A label is dropped rather than drawn illegibly once even the smallest
+// admissible size would overflow that room.
+const LABEL_PT_MIN = 6;      // below this the label is omitted, not shrunk further
+const LABEL_PT_MAX = 20;
+const LABEL_FIT    = 0.85;   // fraction of the available room a label may occupy
+const LABEL_CAP    = 150;    // hard cap on labels drawn in one frame
+const DOT_R_MIN = 0.6, DOT_R_MAX = 3.5;   // group-dot radius, in pixels
+const DOT_FIT   = 0.03;      // dot radius as a fraction of the available room
 
 // One-parameter slider.
 const T_MAX      = 3;     // slider range is [−T_MAX, T_MAX]
@@ -284,10 +295,11 @@ const PLAY_SPEED = 0.6;   // units of t per second when playing
 const VIEW_RADIUS_INIT = 3;         // initial view: centered at 0, radius ≈ 3
 const UPP_MIN = 1e-6, UPP_MAX = 1;  // zoom clamps (complex units per CSS pixel)
 
-// Initial state: the square lattice, and an anchor inside its unit cell.
+// Initial state: the square lattice, with the anchor at the center of the
+// fundamental parallelogram, (a + b)/2.
 const A_INIT  = { re: 1, im: 0 };
 const B_INIT  = { re: 0, im: 1 };
-const Z0_INIT = { re: 0.45, im: 0.55 };
+const Z0_INIT = { re: (A_INIT.re + B_INIT.re) / 2, im: (A_INIT.im + B_INIT.im) / 2 };
 
 /* ================================================================
  * State: one object; all rendering is a pure function of it.
@@ -697,6 +709,57 @@ function flowLabel(m, n) {
   return '<i>z</i> ↦ <i>z</i> + <i>t</i>·' + (m !== 0 && n !== 0 ? '(' + e + ')' : e);
 }
 
+// The room available at a lattice point: the distance, in pixels, to the
+// nearest other point of the lattice.  The lattice being uniform this is the
+// same everywhere, so it varies only with the zoom — and, unlike the spiral
+// lesson, nothing accumulates at the origin, so the labels nearest 0 (which
+// are the ones worth reading) are never the first to go.
+function latticeRoom(dv) {
+  let best = Infinity;
+  for (const v of [dv.e1, dv.e2, cAdd(dv.e1, dv.e2), cAdd(dv.e1, cScale(dv.e2, -1))]) {
+    const L = cAbs(v);
+    if (L > 1e-12) best = Math.min(best, L);
+  }
+  return best / vp.upp;
+}
+
+// Width of a label at the reference size, cached: measureText is exact where a
+// per-character estimate would not be, and the cache keeps it off the hot path.
+const labelWidthCache = new Map();
+function labelWidth(txt) {
+  let w = labelWidthCache.get(txt);
+  if (w === undefined) {
+    ctx.save();
+    ctx.font = LABEL_PT_MAX + 'px system-ui, sans-serif';
+    w = ctx.measureText(txt).width;
+    ctx.restore();
+    labelWidthCache.set(txt, w);
+  }
+  return w;
+}
+
+// The size at which `txt` fits the given room, or 0 if even LABEL_PT_MIN would
+// overflow it — in which case the label is omitted rather than drawn illegibly.
+function labelSize(txt, room) {
+  const w = labelWidth(txt);
+  if (!(w > 0)) return 0;
+  const f = LABEL_PT_MAX * LABEL_FIT * room / w;
+  return f >= LABEL_PT_MIN ? Math.min(f, LABEL_PT_MAX) : 0;
+}
+
+// A group-element label: black on a white border, to the southeast of its dot,
+// where the handle labels (which sit to the northeast) never reach.
+function drawLabel(txt, x, y, f) {
+  ctx.font = f.toFixed(1) + 'px system-ui, sans-serif';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = Math.max(2, f * 0.22);
+  ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+  ctx.fillStyle = '#111';
+  const lx = x + 0.35 * f, ly = y + 0.9 * f;
+  ctx.strokeText(txt, lx, ly);
+  ctx.fillText(txt, lx, ly);
+}
+
 function drawGroupPicture(dv) {
   const r = latticeRange(dv, { re: 0, im: 0 }, 0, DOT_AXIS_CAP, dv.degenerate);
   if (!r) return;
@@ -709,8 +772,9 @@ function drawGroupPicture(dv) {
     const q = toPx(g);
     ctx.beginPath(); ctx.moveTo(o.x, o.y); ctx.lineTo(q.x, q.y); ctx.stroke();
   }
-  ctx.font = '20px system-ui, sans-serif';
-  let drawn = 0;
+  const room = latticeRoom(dv);
+  const rad = clamp(DOT_FIT * room, DOT_R_MIN, DOT_R_MAX);
+  let drawn = 0, labels = 0;
   for (let m = r.mMin; m <= r.mMax; m++) {
     for (let n = r.nMin; n <= r.nMax; n++) {
       if (m === 0 && n === 0) continue;   // the identity: marked permanently, elsewhere
@@ -718,25 +782,23 @@ function drawGroupPicture(dv) {
       const q = toPx(groupElem(dv, m, n));
       if (q.x < -10 || q.x > W + 10 || q.y < -10 || q.y > H + 10) continue;
       ctx.beginPath();
-      ctx.arc(q.x, q.y, 3, 0, TWO_PI);
+      ctx.arc(q.x, q.y, rad, 0, TWO_PI);
       ctx.fillStyle = '#222';
       ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = clamp(rad * 0.5, 0.5, 1.5);
       ctx.fill(); ctx.stroke();
-      // Labels for small |m|, |n| only; the dots at a and b are left
-      // unlabeled, since the draggable handles already name those points.
-      // Labels sit to the southeast, where the handle labels never reach.
+      // Every element is named, save the two whose points the draggable
+      // handles already name.
+      if (labels >= LABEL_CAP) continue;
       const isHandle = dv.degenerate ? (m === 1 && n === 0)
                                      : ((m === 1 && n === 0) || (m === 0 && n === 1));
-      if (Math.abs(m) <= COEF_MAX && Math.abs(n) <= COEF_MAX && !isHandle) {
-        const txt = dv.degenerate ? elemLabel(isZero(state.a) ? 0 : m, isZero(state.a) ? m : 0)
-                                  : elemLabel(m, n);
-        ctx.lineWidth = 4;
-        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-        ctx.strokeText(txt, q.x + 7, q.y + 18);
-        ctx.fillStyle = '#111';
-        ctx.fillText(txt, q.x + 7, q.y + 18);
-      }
+      if (isHandle) continue;
+      const txt = dv.degenerate ? elemLabel(isZero(state.a) ? 0 : m, isZero(state.a) ? m : 0)
+                                : elemLabel(m, n);
+      const f = labelSize(txt, room);
+      if (!f) continue;
+      drawLabel(txt, q.x, q.y, f);
+      labels++;
     }
   }
 }

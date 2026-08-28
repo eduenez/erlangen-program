@@ -94,7 +94,9 @@
       cyclic group of spiral similarities.</h2>
   <ul class="instructions">
     <li>Click one of the boxes 1, 2, …, 12 below to choose <i>n</i>.</li>
-    <li>Drag the gold point <i>a</i> to choose its value.</li>
+    <li>Drag the gold point <i>a</i> to choose its value. The blue point <i>ζ</i>
+        on the unit circle is the other generator; it is not dragged, but set by
+        <i>n</i>.</li>
     <li>All points of the group <i>G</i> (powers of <i>a</i>) are shown if “the group <i>G</i>” is checked).</li>
     <li>The <i>G</i>-orbit of the white flag changes as its pinned "initial" position <i>z₀</i> is dragged
     (only if “orbit of the flag” is checked).</li>
@@ -232,33 +234,57 @@ const TICK_PX     = 6;                 // half-length of the tick marks at ±1, 
 const GHOST_COLOR = 'rgba(190,0,110,0.9)';
 const GHOST_PATH  = 'rgba(190,0,110,0.55)';
 
+// The second generator ζ is marked permanently, in the same blue as the second
+// generator b of the translation lesson.  It is not draggable: ζ is fixed by n.
+const ZETA_COLOR = '#3b7dd8';
+
 // Overlay culling and display.
 const PIXEL_CULL   = 1.0;   // skip orbit copies whose radius falls below this many px
 const DOT_CAP      = 600;   // hard cap on group-picture dots
-const LABEL_K_MAX  = 1;     // label group dots a^k ζ^j only for |k| ≤ this (§4)
 const SPIRAL_SAMPLES = 500; // polyline resolution of the one-parameter orbit (§3.6)
+
+// Labels and dots of the group picture.  Every visible group element is named,
+// at a size following the *room* available at its point — the distance to its
+// nearest neighbour in the orbit (see orbitRoom).  Since that room is
+// proportional to the distance from the origin, labels and dots shrink
+// geometrically as the orbit accumulates at 0, and a label is dropped
+// altogether once even the smallest admissible size would not fit.  This one
+// rule serves both the scaling and the omission near the origin.
+const LABEL_PT_MIN = 6;      // below this the label is omitted, not shrunk further
+const LABEL_PT_MAX = 20;
+const LABEL_FIT    = 0.85;   // fraction of the available room a label may occupy
+const LABEL_CAP    = 150;    // hard cap on labels drawn in one frame
+const DOT_R_MIN = 0.6, DOT_R_MAX = 3.5;   // group-dot radius, in pixels
+const DOT_FIT   = 0.12;      // dot radius as a fraction of the available room
 
 // §3.6: one-parameter slider.
 const T_MAX      = 3;       // slider range is [−T_MAX, T_MAX]
 const PLAY_SPEED = 0.6;     // units of t per second when playing
 
-// §5.1: viewport.
-const VIEW_RADIUS_INIT = 4;     // initial view: centered at 0, radius ≈ 4
+// §5.1: viewport.  The radius is 8/3 rather than the 4 of §5.1: a 50%
+// magnification, which gives the unit circle a workable size on opening.
+const VIEW_RADIUS_INIT = 8 / 3;
 const UPP_MIN = 1e-6, UPP_MAX = 1;  // zoom clamps (complex units per CSS pixel)
 
 // §5.2 (M1): initial generators.
-const A_INIT_MOD = 1.1, A_INIT_ARG = 0.35;  // a = 1.1·exp(0.35i)
-const N_INIT = 5;
+const A_INIT     = { re: 1, im: 1 };     // a = 1 + i = √2·exp(0.25πi)
+const A_INIT_ARG = Math.PI / 4;
+const N_INIT     = 5;
+// The anchor opens at the "logarithmic center of mass" of the fundamental
+// region: that region is the exponential of the parallelogram spanned by α and
+// τ (§3.2), whose center is (α + τ)/2, so z₀ = exp((α + τ)/2) = √a·√ζ.
+const Z0_INIT = regionCenter(
+  { re: Math.log(Math.hypot(A_INIT.re, A_INIT.im)), im: A_INIT_ARG }, N_INIT);
 
 /* ================================================================
  * State (§5.1): one object; all rendering is a pure function of it.
  * ================================================================ */
 
 const state = {
-  a:    { re: A_INIT_MOD * Math.cos(A_INIT_ARG), im: A_INIT_MOD * Math.sin(A_INIT_ARG) },
+  a:    { re: A_INIT.re, im: A_INIT.im },
   argA: A_INIT_ARG,      // continuous branch of arg(a), maintained per §3.5
   n:    N_INIT,
-  z0:   { re: 1, im: 0 },
+  z0:   { re: Z0_INIT.re, im: Z0_INIT.im },
   showOrbit: true,
   showGroup: false,
   t: 0,
@@ -276,6 +302,18 @@ function cAbs(z)     { return Math.hypot(z.re, z.im); }
 function cMul(z, w)  { return { re: z.re * w.re - z.im * w.im, im: z.re * w.im + z.im * w.re }; }
 function cExp(z)     { const m = Math.exp(z.re); return { re: m * Math.cos(z.im), im: m * Math.sin(z.im) }; }
 function clamp(x, lo, hi) { return Math.min(hi, Math.max(lo, x)); }
+
+// The center of the fundamental region, in the sense of §3.2: the region is
+// the exponential of the parallelogram spanned by α and τ = 2πi/n, so its
+// center is exp((α + τ)/2) — the geometric mean √a·√ζ of the two generators.
+function regionCenter(alpha, n) {
+  return cExp({ re: alpha.re / 2, im: alpha.im / 2 + Math.PI / n });
+}
+
+// ζ itself, the second generator.
+function zetaPoint(n) {
+  return { re: Math.cos(TWO_PI / n), im: Math.sin(TWO_PI / n) };
+}
 
 // Snap arg(a) to the nearest multiple of π when within ARG_SNAP_PI of one, so
 // that a real generator is reachable by dragging.  Snapping to the *nearest*
@@ -614,34 +652,87 @@ function elemLabel(k, j) {
   return (k === 0 && j === 0) ? '1' : powLabel('a', k) + powLabel('ζ', j);
 }
 
+// The room available at a group point r pixels from the origin: the distance,
+// in pixels, to its nearest neighbour in the orbit.  The radial neighbours of
+// a^k ζ^j sit at |a|^{k±1}, so the nearer of them is a factor min(|a|, 1/|a|)
+// away; the angular neighbours (only when n ≥ 2) are a chord 2·sin(π/n) away.
+// Both are proportional to r, which is exactly why the picture shrinks
+// geometrically as the orbit accumulates at the origin.
+function orbitRoom(rPx, ra) {
+  const rho = Math.min(ra, 1 / ra);              // < 1, since |a| ≠ 1
+  let f = 1 - rho;
+  if (state.n >= 2) f = Math.min(f, 2 * Math.sin(Math.PI / state.n));
+  return rPx * f;
+}
+
+// Width of a label at the reference size, cached: measureText is exact where a
+// per-character estimate would not be, and the cache keeps it off the hot path.
+const labelWidthCache = new Map();
+function labelWidth(txt) {
+  let w = labelWidthCache.get(txt);
+  if (w === undefined) {
+    ctx.save();
+    ctx.font = LABEL_PT_MAX + 'px system-ui, sans-serif';
+    w = ctx.measureText(txt).width;
+    ctx.restore();
+    labelWidthCache.set(txt, w);
+  }
+  return w;
+}
+
+// The size at which `txt` fits the given room, or 0 if even LABEL_PT_MIN would
+// overflow it — in which case the label is omitted rather than drawn illegibly.
+function labelSize(txt, room) {
+  const w = labelWidth(txt);
+  if (!(w > 0)) return 0;
+  const f = LABEL_PT_MAX * LABEL_FIT * room / w;
+  return f >= LABEL_PT_MIN ? Math.min(f, LABEL_PT_MAX) : 0;
+}
+
+// A group-element label: black on a white border, to the northeast of its dot,
+// with the offset and the border weight following the size.
+function drawLabel(txt, x, y, f) {
+  ctx.font = f.toFixed(1) + 'px system-ui, sans-serif';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = Math.max(2, f * 0.22);
+  ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+  ctx.fillStyle = '#111';
+  const lx = x + 0.35 * f, ly = y - 0.35 * f;
+  ctx.strokeText(txt, lx, ly);
+  ctx.fillText(txt, lx, ly);
+}
+
 function drawGroupPicture(dv) {
   const lnA = dv.alpha.re;
   const { rmin, rmax } = radialBounds();
   const lo = Math.max(rmin, 0.5 * vp.upp), hi = rmax;   // orbit of 1: |a^k ζ^j| = |a|^k
   const kr = kRange(lnA, lo, hi, Math.max(1, Math.floor(DOT_CAP / state.n)));
   if (!kr) return;
-  ctx.font = '20px system-ui, sans-serif';
+  const o = toPx({ re: 0, im: 0 });
+  let labels = 0;
   for (let k = kr.kmin; k <= kr.kmax; k++) {
     for (let j = 0; j < state.n; j++) {
       const q = toPx(groupElem(dv.alpha, k, j));
       if (q.x < -10 || q.x > W + 10 || q.y < -10 || q.y > H + 10) continue;
+      const room = orbitRoom(Math.hypot(q.x - o.x, q.y - o.y), dv.ra);
       const isIdentity = (k === 0 && j === 0);
+      const rad = clamp(DOT_FIT * room, DOT_R_MIN, DOT_R_MAX) + (isIdentity ? 1.5 : 0);
       ctx.beginPath();
-      ctx.arc(q.x, q.y, isIdentity ? 4.5 : 3, 0, TWO_PI);
+      ctx.arc(q.x, q.y, rad, 0, TWO_PI);
       ctx.fillStyle = isIdentity ? '#111' : '#222';
       ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = clamp(rad * 0.5, 0.5, 1.5);
       ctx.fill(); ctx.stroke();
-      // Labels for small |k| only (§4); the dot at a itself is left unlabeled,
-      // since the draggable handle already labels that point.
-      if (Math.abs(k) <= LABEL_K_MAX && !(k === 1 && j === 0)) {
-        const txt = elemLabel(k, j);
-        ctx.lineWidth = 4;
-        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-        ctx.strokeText(txt, q.x + 7, q.y - 7);
-        ctx.fillStyle = '#111';
-        ctx.fillText(txt, q.x + 7, q.y - 7);
-      }
+      // Every element is named, save three whose points are already named
+      // elsewhere: a and ζ carry their own markers, and the identity sits at
+      // the point 1, which the axis mark labels.
+      if (labels >= LABEL_CAP) continue;
+      if (isIdentity || (k === 1 && j === 0) || (k === 0 && j === 1)) continue;
+      const txt = elemLabel(k, j);
+      const f = labelSize(txt, room);
+      if (!f) continue;
+      drawLabel(txt, q.x, q.y, f);
+      labels++;
     }
   }
 }
@@ -732,6 +823,9 @@ function draw() {
   // them and the ghost becomes visible.
   drawOneParameter(dv);
   drawFigure({ re: 1, im: 0 }, state.z0, FIG_SCALE, '#fff', true);   // the base copy
+  // ζ is marked permanently, whether or not the group picture is on: it is the
+  // second generator, and unlike a it is not dragged but set by n.
+  drawHandle(zetaPoint(state.n), ZETA_COLOR, '#fff', 'ζ');
   drawHandle(state.a, '#d4a017', '#fff', 'a');
   drawHandle(state.z0, '#fff', '#111', 'z₀');
 
@@ -850,14 +944,20 @@ overlay.addEventListener('wheel', (ev) => {
  * ================================================================ */
 
 const nBox = document.getElementById('nButtons');
+// The buttons are kept in their own list, indexed so that nButtonEls[n − 1] is
+// the button for n.  Addressing them by position among nBox.children would be
+// wrong: the container also holds the caption "Order n =", so every button
+// sits one place further along than its value suggests.
+const nButtonEls = [];
 for (let n = 1; n <= 12; n++) {
   const b = document.createElement('button');
   b.textContent = n;
   b.addEventListener('click', () => { setN(n); });
   nBox.appendChild(b);
+  nButtonEls.push(b);
 }
 function refreshNButtons() {
-  [...nBox.children].forEach((b, i) => b.classList.toggle('sel', i + 1 === state.n));
+  nButtonEls.forEach((b, i) => b.classList.toggle('sel', i + 1 === state.n));
 }
 
 function setN(n) {
