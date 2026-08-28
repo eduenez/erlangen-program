@@ -256,6 +256,12 @@ const LABEL_FIT    = 0.85;   // fraction of the available room a label may occup
 const LABEL_CAP    = 150;    // hard cap on labels drawn in one frame
 const DOT_R_MIN = 0.6, DOT_R_MAX = 3.5;   // group-dot radius, in pixels
 const DOT_FIT   = 0.12;      // dot radius as a fraction of the available room
+// Two lettering schemes, one per layer of the picture: the group layer (its
+// dots, a and ζ) is black on a white border; the orbit layer (the flags, z₀
+// and its images) is white on a dark one.  The border is legibility only —
+// neither text is drawn without one, since the tiles run pale in places.
+const LABEL_DARK_ON_LIGHT = { fill: '#111', halo: 'rgba(255,255,255,0.85)' };
+const LABEL_LIGHT_ON_DARK = { fill: '#fff', halo: 'rgba(15,15,25,0.75)' };
 
 // §3.6: one-parameter slider.
 const T_MAX      = 3;       // slider range is [−T_MAX, T_MAX]
@@ -266,10 +272,12 @@ const PLAY_SPEED = 0.6;     // units of t per second when playing
 const VIEW_RADIUS_INIT = 8 / 3;
 const UPP_MIN = 1e-6, UPP_MAX = 1;  // zoom clamps (complex units per CSS pixel)
 
-// §5.2 (M1): initial generators.
-const A_INIT     = { re: 1, im: 1 };     // a = 1 + i = √2·exp(0.25πi)
-const A_INIT_ARG = Math.PI / 4;
+// §5.2 (M1): initial generators.  The generator opens at a = 1 + ζ, which is
+// 2·cos(π/n)·exp(iπ/n) — for n = 5 that is the golden ratio at argument π/5.
 const N_INIT     = 5;
+const A_INIT     = { re: 1 + Math.cos(2 * Math.PI / N_INIT),
+                     im: Math.sin(2 * Math.PI / N_INIT) };
+const A_INIT_ARG = Math.PI / N_INIT;     // arg(1 + ζ) = π/n
 // The anchor opens at the "logarithmic center of mass" of the fundamental
 // region: that region is the exponential of the parallelogram spanned by α and
 // τ (§3.2), whose center is (α + τ)/2, so z₀ = exp((α + τ)/2) = √a·√ζ.
@@ -593,56 +601,12 @@ function drawUnitCircle(emphasize) {
   ctx.restore();
 }
 
-/* ---------------- the marked figure and its orbit (§3.4) ---------------- */
-
-// Draw the image of the template under p ↦ m·(z₀ + s·p).
-function drawFigure(m, z0, s, style, isBase) {
-  const mAbs = Math.hypot(m.re, m.im);
-  const anchor = cMul(m, z0);
-  const apx = toPx(anchor);
-  const figPx = 2 * s * mAbs / vp.upp;          // bounding radius of the image, in px
-  if (figPx < PIXEL_CULL) return;               // subpixel: cull
-  const pad = Math.min(figPx, 1e6);
-  if (apx.x < -pad || apx.x > W + pad || apx.y < -pad || apx.y > H + pad) return;
-  ctx.strokeStyle = style;
-  ctx.fillStyle = style;
-  ctx.lineWidth = clamp(0.10 * figPx, isBase ? 1.2 : 0.6, 4);
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  for (const part of FIG_TEMPLATE) {
-    ctx.beginPath();
-    part.pts.forEach(([px, py], i) => {
-      const zt = { re: z0.re + s * px, im: z0.im + s * py };
-      const q = toPx(cMul(m, zt));
-      if (i === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
-    });
-    if (part.fill) { ctx.closePath(); ctx.fill(); }
-    ctx.stroke();
-  }
-}
-
-// Group element a^k ζ^j as a complex multiplier, via the continuous branch
-// α of log a (§3.5), so that the overlay agrees with the shader.
-function groupElem(alpha, k, j) {
-  return cExp({ re: k * alpha.re, im: k * alpha.im + j * TWO_PI / state.n });
-}
-
-function drawOrbitFigure(dv) {
-  const rz = cAbs(state.z0), s = FIG_SCALE;
-  const lnA = dv.alpha.re;
-  const { rmin, rmax } = radialBounds();
-  const lo = Math.max(rmin, PIXEL_CULL * vp.upp) / (rz + 2 * s);   // §3.4 culling bound
-  const hi = rmax / Math.max(rz - 2 * s, DELTA_Z0);
-  const kr = kRange(lnA, lo, hi, Math.max(1, Math.floor(FIG_CAP / state.n)));
-  if (!kr) return;
-  for (let k = kr.kmin; k <= kr.kmax; k++) {
-    for (let j = 0; j < state.n; j++) {
-      if (k === 0 && j === 0) continue;   // base copy drawn separately, on top
-      drawFigure(groupElem(dv.alpha, k, j), state.z0, s, 'rgba(255,255,255,0.85)', false);
-    }
-  }
-}
-
-/* ---------------- the picture of the group (§3.1, §4) ---------------- */
+/* ---------------- naming and sizing of labels ----------------
+ * Shared by the group picture (which names the elements a^k ζ^j) and by the
+ * orbit of the flag (which names its copies a^k ζ^j·z₀).  Both orbits have the
+ * same geometry — the second is the first scaled by z₀ — so one measure of the
+ * room available serves for both.
+ * ------------------------------------------------------------ */
 
 const SUP = { '-': '⁻', '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
               '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹' };
@@ -652,8 +616,8 @@ function elemLabel(k, j) {
   return (k === 0 && j === 0) ? '1' : powLabel('a', k) + powLabel('ζ', j);
 }
 
-// The room available at a group point r pixels from the origin: the distance,
-// in pixels, to its nearest neighbour in the orbit.  The radial neighbours of
+// The room available at a point r pixels from the origin: the distance, in
+// pixels, to its nearest neighbour in the orbit.  The radial neighbours of
 // a^k ζ^j sit at |a|^{k±1}, so the nearer of them is a factor min(|a|, 1/|a|)
 // away; the angular neighbours (only when n ≥ 2) are a chord 2·sin(π/n) away.
 // Both are proportional to r, which is exactly why the picture shrinks
@@ -689,18 +653,84 @@ function labelSize(txt, room) {
   return f >= LABEL_PT_MIN ? Math.min(f, LABEL_PT_MAX) : 0;
 }
 
-// A group-element label: black on a white border, to the northeast of its dot,
-// with the offset and the border weight following the size.
-function drawLabel(txt, x, y, f) {
+// A label to the northeast of its point, in the given scheme, with the offset
+// and the border weight following the size.
+function drawLabel(txt, x, y, f, scheme) {
   ctx.font = f.toFixed(1) + 'px system-ui, sans-serif';
   ctx.lineJoin = 'round';
   ctx.lineWidth = Math.max(2, f * 0.22);
-  ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-  ctx.fillStyle = '#111';
+  ctx.strokeStyle = scheme.halo;
+  ctx.fillStyle = scheme.fill;
   const lx = x + 0.35 * f, ly = y - 0.35 * f;
   ctx.strokeText(txt, lx, ly);
   ctx.fillText(txt, lx, ly);
 }
+
+/* ---------------- the marked figure and its orbit (§3.4) ---------------- */
+
+// Draw the image of the template under p ↦ m·(z₀ + s·p).  Reports whether the
+// copy was actually drawn, so that the orbit only labels what is on screen.
+function drawFigure(m, z0, s, style, isBase) {
+  const mAbs = Math.hypot(m.re, m.im);
+  const anchor = cMul(m, z0);
+  const apx = toPx(anchor);
+  const figPx = 2 * s * mAbs / vp.upp;          // bounding radius of the image, in px
+  if (figPx < PIXEL_CULL) return false;         // subpixel: cull
+  const pad = Math.min(figPx, 1e6);
+  if (apx.x < -pad || apx.x > W + pad || apx.y < -pad || apx.y > H + pad) return false;
+  ctx.strokeStyle = style;
+  ctx.fillStyle = style;
+  ctx.lineWidth = clamp(0.10 * figPx, isBase ? 1.2 : 0.6, 4);
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (const part of FIG_TEMPLATE) {
+    ctx.beginPath();
+    part.pts.forEach(([px, py], i) => {
+      const zt = { re: z0.re + s * px, im: z0.im + s * py };
+      const q = toPx(cMul(m, zt));
+      if (i === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
+    });
+    if (part.fill) { ctx.closePath(); ctx.fill(); }
+    ctx.stroke();
+  }
+  return true;
+}
+
+// Group element a^k ζ^j as a complex multiplier, via the continuous branch
+// α of log a (§3.5), so that the overlay agrees with the shader.
+function groupElem(alpha, k, j) {
+  return cExp({ re: k * alpha.re, im: k * alpha.im + j * TWO_PI / state.n });
+}
+
+function drawOrbitFigure(dv) {
+  const rz = cAbs(state.z0), s = FIG_SCALE;
+  const lnA = dv.alpha.re;
+  const { rmin, rmax } = radialBounds();
+  const lo = Math.max(rmin, PIXEL_CULL * vp.upp) / (rz + 2 * s);   // §3.4 culling bound
+  const hi = rmax / Math.max(rz - 2 * s, DELTA_Z0);
+  const kr = kRange(lnA, lo, hi, Math.max(1, Math.floor(FIG_CAP / state.n)));
+  if (!kr) return;
+  const o = toPx({ re: 0, im: 0 });
+  let labels = 0;
+  for (let k = kr.kmin; k <= kr.kmax; k++) {
+    for (let j = 0; j < state.n; j++) {
+      if (k === 0 && j === 0) continue;   // base copy drawn separately, on top
+      const g = groupElem(dv.alpha, k, j);
+      if (!drawFigure(g, state.z0, s, 'rgba(255,255,255,0.85)', false)) continue;
+      // Name each copy by the element that carried z₀ there, in the same
+      // notation as the group picture but lettered as part of the orbit layer.
+      if (labels >= LABEL_CAP) continue;
+      const anchor = toPx(cMul(g, state.z0));
+      const room = orbitRoom(Math.hypot(anchor.x - o.x, anchor.y - o.y), dv.ra);
+      const txt = elemLabel(k, j) + '·z₀';
+      const f = labelSize(txt, room);
+      if (!f) continue;
+      drawLabel(txt, anchor.x, anchor.y, f, LABEL_LIGHT_ON_DARK);
+      labels++;
+    }
+  }
+}
+
+/* ---------------- the picture of the group (§3.1, §4) ---------------- */
 
 function drawGroupPicture(dv) {
   const lnA = dv.alpha.re;
@@ -731,7 +761,7 @@ function drawGroupPicture(dv) {
       const txt = elemLabel(k, j);
       const f = labelSize(txt, room);
       if (!f) continue;
-      drawLabel(txt, q.x, q.y, f);
+      drawLabel(txt, q.x, q.y, f, LABEL_DARK_ON_LIGHT);
       labels++;
     }
   }
@@ -750,18 +780,28 @@ function drawOneParameter(dv) {
   let tlo = Math.min(t1, t2), thi = Math.max(t1, t2);
   tlo = clamp(tlo, -200, 200); thi = clamp(thi, -200, 200);
   if (thi > tlo) {
-    // the continuous orbit { exp(tα)·z₀ : t ∈ ℝ } — in the ghost's own color,
-    // so that it is taken neither for a boundary curve (white) nor for an
-    // axis (black)
-    ctx.strokeStyle = GHOST_PATH;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
+    // The continuous orbit { exp(tα)·z₀ : t ∈ ℝ } — in the ghost's own color,
+    // so that it is taken neither for a boundary curve (white) nor for an axis
+    // (black).  All n rotations ζ^j of it are drawn: they are the orbits of the
+    // n points ζ^j·z₀, and together they carry the n-fold symmetry of the
+    // tessellation.  The radial t-range is the same for every one of them,
+    // rotation leaving |z| alone, so the curve is sampled once and reused.
+    const pts = [];
     for (let i = 0; i <= SPIRAL_SAMPLES; i++) {
       const t = tlo + (thi - tlo) * i / SPIRAL_SAMPLES;
-      const q = toPx(cMul(cExp({ re: t * dv.alpha.re, im: t * dv.alpha.im }), state.z0));
-      if (i === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
+      pts.push(cMul(cExp({ re: t * dv.alpha.re, im: t * dv.alpha.im }), state.z0));
     }
-    ctx.stroke();
+    ctx.strokeStyle = GHOST_PATH;
+    ctx.lineWidth = 1.5;
+    for (let j = 0; j < state.n; j++) {
+      const rot = { re: Math.cos(j * TWO_PI / state.n), im: Math.sin(j * TWO_PI / state.n) };
+      ctx.beginPath();
+      for (let i = 0; i < pts.length; i++) {
+        const q = toPx(cMul(rot, pts[i]));
+        if (i === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
+      }
+      ctx.stroke();
+    }
   }
   // the ghost image exp(tα)·(base figure), gliding with the slider
   const m = cExp({ re: state.t * dv.alpha.re, im: state.t * dv.alpha.im });
@@ -773,7 +813,10 @@ function drawOneParameter(dv) {
 
 /* ---------------- draggable handles ---------------- */
 
-function drawHandle(z, fill, ring, label) {
+// `scheme` letters the label: the generators belong to the group layer and are
+// black on a white border, while z₀ belongs to the orbit layer and is white,
+// like the flag it anchors and like the names of that flag's copies.
+function drawHandle(z, fill, ring, label, scheme) {
   const q = toPx(z);
   ctx.beginPath();
   ctx.arc(q.x, q.y, 6.5, 0, TWO_PI);
@@ -781,14 +824,14 @@ function drawHandle(z, fill, ring, label) {
   ctx.strokeStyle = ring;
   ctx.lineWidth = 2;
   ctx.fill(); ctx.stroke();
-  // Label style (per instructor direction): black letter with a white border.
+  const sch = scheme || LABEL_DARK_ON_LIGHT;
   ctx.save();
   ctx.font = HANDLE_FONT;
   ctx.lineJoin = 'round';
   ctx.lineWidth = 5;
-  ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+  ctx.strokeStyle = sch.halo;
   ctx.strokeText(label, q.x + 10, q.y - 10);
-  ctx.fillStyle = '#111';
+  ctx.fillStyle = sch.fill;
   ctx.fillText(label, q.x + 10, q.y - 10);
   ctx.restore();
 }
@@ -827,7 +870,7 @@ function draw() {
   // second generator, and unlike a it is not dragged but set by n.
   drawHandle(zetaPoint(state.n), ZETA_COLOR, '#fff', 'ζ');
   drawHandle(state.a, '#d4a017', '#fff', 'a');
-  drawHandle(state.z0, '#fff', '#111', 'z₀');
+  drawHandle(state.z0, '#fff', '#111', 'z₀', LABEL_LIGHT_ON_DARK);
 
   // — readouts —
   document.getElementById('aReadout').innerHTML = formatA(dv.ra);
