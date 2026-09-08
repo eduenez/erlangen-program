@@ -1,0 +1,46 @@
+name: Deploy Pages
+
+# Publishes web/ verbatim as the site root (https://supernumero.us/erlangen-program/),
+# via GitHub's Actions-based Pages deployment (Settings -> Pages -> Build and
+# deployment: GitHub Actions, already selected). No build step of any kind --
+# every lesson page is a self-contained, dependency-free HTML/JS file by
+# design (see README.md), so this workflow only uploads web/'s contents
+# unmodified; there is nothing here for Jekyll or any bundler to do.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one deployment in flight at a time; a push that lands mid-deploy waits
+# rather than racing the one already running.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload web/ as the Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

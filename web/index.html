@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Erlangen Program, Concretely</title>
+<style>
+  html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont,
+               "Segoe UI", Helvetica, Arial, sans-serif; color: #1a1a1a;
+               background: #fdfdfb; line-height: 1.55; }
+  main { max-width: 46rem; margin: 0 auto; padding: 3rem 1.5rem 4rem; }
+  h1 { font-size: 1.9rem; margin: 0 0 0.3rem; }
+  .subtitle { color: #555; margin: 0 0 2rem; font-size: 1.05rem; }
+  p { margin: 0 0 1rem; }
+  .lessons { list-style: none; margin: 2rem 0 0; padding: 0; display: grid; gap: 1rem; }
+  .lessons li { border: 1px solid #ddd; border-radius: 10px; padding: 1.1rem 1.3rem;
+                background: #fff; }
+  .lessons h2 { margin: 0 0 0.4rem; font-size: 1.15rem; }
+  .lessons h2 a { color: #14508a; text-decoration: none; }
+  .lessons h2 a:hover { text-decoration: underline; }
+  .lessons p { margin: 0; color: #333; }
+  .status { display: inline-block; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.03em;
+            text-transform: uppercase; color: #7a6a00; background: #fff6d8;
+            border: 1px solid #ecd98f; border-radius: 5px; padding: 0.1rem 0.45rem;
+            margin-left: 0.5rem; vertical-align: 1px; }
+  footer { margin-top: 3rem; padding-top: 1.2rem; border-top: 1px solid #e5e5e5;
+           font-size: 0.85rem; color: #666; }
+  footer a { color: #14508a; }
+  code { background: #f1f1ef; padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.92em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>The Erlangen Program, Concretely</h1>
+  <p class="subtitle">Interactive lessons on groups of geometric transformations.</p>
+
+  <p>An accessible, modern introduction to the philosophy behind Klein's
+     <i>Erlangen Program</i>: a geometry is defined by its group of
+     transformations, and different groups &mdash; isometries, similarities,
+     affine maps, projective/M&ouml;bius maps &mdash; give genuinely different
+     geometries on the same underlying space.</p>
+
+  <p>Each lesson below is a single, self-contained page: no course, no
+     institution, no login, nothing to install. Open it, drag things, and
+     watch what does and doesn't happen &mdash; that's the mathematics.</p>
+
+  <ul class="lessons">
+    <li>
+      <h2><a href="lattice-groups.html">Groups of translations</a></h2>
+      <p>Two draggable generators <code>a</code>, <code>b</code> tessellate the plane by
+         translation, coloring one fundamental parallelogram and reproducing that
+         coloring exactly on every copy &mdash; a picture of the quotient, drawn
+         live as you drag. Includes the group's own "picture of itself": the
+         orbit of a single marked point.</p>
+    </li>
+    <li>
+      <h2><a href="spiral-groups.html">Groups of spiral similarities</a></h2>
+      <p>A draggable generator <code>a</code> (a jump <code>z &#8614; a&middot;z</code>) and a
+         rotation order <code>n</code> generate a group whose fundamental region tiles the
+         plane by logarithmic spirals instead of straight lines. A one-parameter
+         slider glides continuously through the same points the discrete group
+         only hops between &mdash; continuous versus discrete, made visible.</p>
+    </li>
+  </ul>
+
+  <footer>
+    Released under <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>
+    &mdash; copy, adapt, and reuse freely with attribution. Source, planning
+    documents, and the lesson roadmap are at
+    <a href="https://github.com/eduenez/erlangen-program">github.com/eduenez/erlangen-program</a>.
+  </footer>
+</main>
+</body>
+</html>
