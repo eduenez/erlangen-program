@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Riemann sphere</title>
+<!--
+  The Riemann sphere: stereographic projection — interactive lesson.
+
+  Implements the contract of `riemann-sphere-plan.md`; all Sec. references
+  below are to that document.
+
+  Architecture (Sec. 2, Sec. 5.1).  Two stacked full-window canvases, as in
+  `web/spiral-groups.html` and `web/lattice-groups.html`: a WebGL2 canvas
+  beneath, drawing one full-screen triangle under a fragment shader that casts
+  ONE RAY PER PIXEL against the scene's surfaces analytically — the unit
+  sphere (a quadratic), the plane Z = 0 (linear), the projecting segment (a
+  capsule) and the two markers (balls) — sorts the at most six hits along the
+  ray and composites them front to back; and a Canvas-2D overlay above it
+  carrying text only.
+
+  Why per-pixel casting rather than a sphere mesh with a global draw order:
+  the plane cuts through the sphere, so along one line of sight the plane may
+  be crossed before entering the sphere, inside it, or after leaving it, and
+  all three cases occur within a single view.  The correct compositing order
+  is therefore a per-pixel fact and no ordering of whole primitives can be
+  right everywhere (Sec. 1).  Casting rays makes it right by construction.
+
+  DEVIATION FROM THE PLAN, surfaced as Sec. 5.4 requires.  Sec. 3.2 states
+  that t* = 2/(1+|z|^2) lies in (0,1) and instructs that the segment be drawn
+  from the pole to the plane point.  That is correct only for |z| > 1.  For
+  |z| < 1 we have t* > 1 (indeed t* = 2 at z = 0), the plane point lies INSIDE
+  the sphere, and the sphere point lies BEYOND it on the ray; drawing only as
+  far as the plane point would leave the marker off the end of the segment for
+  every point of the unit disc, the opening state included.  We therefore draw
+  the segment to t_end = max(1, t*), so that the pole, the plane point and the
+  sphere point are collinear ON the drawn segment in every case.  Everything
+  else in Sec. 3.2 is honoured: the marker is placed at t* along the segment
+  and never computed independently.
+
+  Console interface (for the instructor, and for scripted checks):
+      sphere.setZ(re, im)  — place the plane point z
+      sphere.setSigma(s)   — s = -1 project from the south pole, +1 the north
+      sphere.setCam(az, el, dist)
+      sphere.reset()
+      sphere.state         — the live state object
+-->
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden;
+               font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+               color: #1a1a1a; }
+  #stage { position: fixed; inset: 0; }
+  #glcanvas, #overlay { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #overlay { touch-action: none; cursor: grab; }
+
+  .panel { position: fixed; background: rgba(255,255,255,0.93); border: 1px solid #d8d8de;
+           border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.14);
+           padding: 0.7rem 0.9rem; line-height: 1.35; }
+  /* The control panel has three states: "full" (everything), "compact" (the
+     controls alone, without the prose) and "hidden" (nothing but the
+     hamburger).  The chevron in the header moves between the two open states
+     in either direction, the cross hides the panel, and the hamburger brings
+     it back.  The header stays put while the body scrolls, so the buttons are
+     reachable however long the panel grows. */
+  #controls { top: 12px; left: 12px; width: min(290px, calc(100vw - 24px));
+              font-size: 0.86rem; max-height: calc(100vh - 24px);
+              display: flex; flex-direction: column; overflow: hidden; }
+  .panelHead { display: flex; align-items: flex-start; justify-content: space-between;
+               gap: 0.5rem; flex: 0 0 auto; }
+  .panelBody { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+  #controls h1 { font-size: 1.05rem; margin: 0 0 0.1rem 0; }
+  .panelBtns { flex: 0 0 auto; display: flex; gap: 3px; }
+  .panelBtns button { width: 28px; height: 24px; border: 1px solid #bbb;
+                      border-radius: 4px; background: #f4f4f6; cursor: pointer;
+                      font-size: 0.85rem; line-height: 1; padding: 0; color: #333; }
+  #controls[data-panel="compact"] .verbose { display: none; }
+  #controls[data-panel="hidden"] { display: none; }
+  #hamburger { position: fixed; top: 12px; left: 12px; width: 42px; height: 38px;
+               border: 1px solid #d8d8de; border-radius: 8px; color: #333;
+               background: rgba(255,255,255,0.93); box-shadow: 0 2px 10px rgba(0,0,0,0.14);
+               cursor: pointer; font-size: 1.2rem; line-height: 1; z-index: 6; }
+  #controls h2 { font-size: 0.8rem; font-weight: 400; color: #444; line-height: 1.45;
+                 margin: 0.3rem 0 0.55rem 0; text-align: justify; }
+  .row { margin: 0.4rem 0; }
+  .readout { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.8rem; }
+  #lamReadout { color: #555; font-size: 0.78rem; }
+  label.toggle { display: block; margin: 0.25rem 0; cursor: pointer; }
+  .instructions { margin: 0.45rem 0; padding-left: 1.15rem; font-size: 0.75rem; color: #222; }
+  .instructions li { margin: 0.18rem 0; }
+  #poleBtns button { height: 26px; margin: 1px; border: 1px solid #bbb; border-radius: 4px;
+                     background: #f4f4f6; cursor: pointer; font-size: 0.8rem; padding: 0 0.5rem; }
+  #poleBtns button.sel { background: #4C72B0; color: #fff; border-color: #4C72B0; font-weight: 600; }
+  .btn { margin-top: 0.45rem; border: 1px solid #bbb; border-radius: 4px;
+         background: #f4f4f6; cursor: pointer; padding: 0.15rem 0.5rem; font-size: 0.8rem; }
+
+  #captions { top: 12px; right: 12px; bottom: 12px;
+              width: min(350px, calc(100vw - 24px));
+              overflow-y: auto; font-size: 0.84rem; }
+  #captions h2 { font-size: 0.95rem; margin: 0 1.4rem 0.4rem 0; }
+  #captions p { margin: 0.55rem 0; }
+  #captions code { background: #eee; padding: 0.05rem 0.25rem; border-radius: 3px;
+                   font-size: 0.82rem; }
+  #captions .close { position: absolute; top: 6px; right: 9px; border: none; background: none;
+                     font-size: 1rem; cursor: pointer; color: #777; }
+  #captions footer { margin-top: 0.8rem; padding-top: 0.5rem; border-top: 1px solid #ddd;
+                     font-size: 0.74rem; color: #777; }
+  .hidden { display: none !important; }
+
+  #nogl { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+          background: #fafafa; text-align: center; padding: 2rem; font-size: 1rem; color: #333; }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <canvas id="glcanvas"></canvas>
+  <canvas id="overlay"></canvas>
+</div>
+
+<!-- Sec. 5.1: plain-language message if WebGL2 is unavailable; no CPU fallback. -->
+<div id="nogl">
+  <p>This lesson needs WebGL2, which your browser has disabled or does not support.<br>
+     Please open the page in a current version of Chrome, Safari or Firefox.</p>
+</div>
+
+<div id="controls" class="panel">
+  <div class="panelHead">
+    <h1>The Riemann sphere</h1>
+    <span class="panelBtns">
+      <button id="panelExpand" title="collapse to the controls"
+              aria-controls="controls">&#9652;</button>
+      <button id="panelHide" title="hide the panel"
+              aria-controls="controls">&#10005;</button>
+    </span>
+  </div>
+  <div class="panelBody">
+  <h2 class="verbose">The unit sphere sits in the complex plane, meeting it along the
+      equator, which is therefore the plane's own unit circle. Joining a point
+      <i>z</i> of the plane to one pole of the sphere by a straight line marks a second
+      point <i>P</i> where that line crosses the sphere: this correspondence is
+      <i>stereographic projection</i>. The pole one projects from answers to
+      <i>z</i> = &infin;, and the opposite pole to <i>z</i> = 0, so that the sphere is
+      the plane with a single point at infinity added &mdash; the
+      <i>Riemann sphere</i>.</h2>
+  <ul class="instructions verbose">
+    <li>Drag the white point <i>z</i> across the plane; its image <i>P</i> and the
+        projecting line follow.</li>
+    <li>Drag empty space to orbit the sphere, and scroll to zoom. The sphere is
+        translucent, so <i>P</i> stays visible on the far side.</li>
+    <li>Push <i>z</i> far out and watch <i>P</i> creep toward the pole marked
+        &infin;.</li>
+    <li>Tick “a figure at <i>z</i>” to carry the pennant flag of the other lessons
+        along, and watch what the projection does to it. Its image is largest
+        near <i>z</i> = 0 and shrinks as <i>z</i> moves out, by the factor
+        &lambda; in the panel.</li>
+  </ul>
+  <div class="row readout" id="zReadout"></div>
+  <div class="row readout" id="pReadout"></div>
+  <div class="row"><span id="lamReadout"></span></div>
+  <div class="row" id="poleBtns">Project from<!-- filled by the script --></div>
+  <label class="toggle"><input type="checkbox" id="chkFlag">
+    Show a figure at <i>z</i> (and its image)</label>
+  <label class="toggle"><input type="checkbox" id="chkGrat" checked>
+    Show the graticule</label>
+  <button class="btn" id="btnReset">reset the view</button>
+  <label class="toggle"><input type="checkbox" id="chkNotes" checked>
+    Show mini-lesson</label>
+  </div>
+</div>
+
+<button id="hamburger" class="hidden" title="show the controls"
+        aria-controls="controls" aria-expanded="true">&#9776;</button>
+
+<div id="captions" class="panel">
+  <button class="close" id="btnCloseNotes" title="close">&#10005;</button>
+  <h2>What to look for</h2>
+  <p><b>One line, three points.</b> Everything here follows from a single straight
+     line. Pick a point <code>z</code> of the plane, join it to the pole marked
+     <code>&infin;</code>, and the line meets the sphere again at <code>P</code>. The
+     three points are collinear by construction &mdash; that is the whole definition,
+     and it is why <code>P</code> is drawn <i>on</i> the line rather than computed
+     separately. Notice that when <code>z</code> lies inside the unit circle the plane
+     point is <i>inside</i> the sphere, and <code>P</code> lies beyond it on the line;
+     outside the unit circle the order is reversed.</p>
+  <p><b>Where the poles go.</b> Drag <code>z</code> toward the origin and
+     <code>P</code> climbs to the pole marked <code>0</code>; push <code>z</code> far
+     away in any direction and <code>P</code> settles toward the pole marked
+     <code>&infin;</code>, from whichever side it approached. Every direction of escape
+     in the plane arrives at the <i>same</i> point of the sphere: the plane has many
+     ways to run off to infinity, and the sphere collapses them all into one point.
+     That single added point is what makes the sphere <i>compact</i> &mdash; and what
+     makes it the natural home of the plane.</p>
+  <p><b>The equator is not drawn.</b> Look where the sphere meets the plane. No
+     equator has been drawn anywhere: the curve you see is simply the plane's own unit
+     circle, which is where the two surfaces cross. And the unit circle is exactly the
+     set that the projection leaves alone &mdash; put <code>z</code> on it and
+     <code>P</code> lands on top of <code>z</code>, for either choice of pole.</p>
+  <p><b>Angles survive; areas do not.</b> The projection is <i>conformal</i>: it
+     preserves angles everywhere. Switch on the figure and drag it about &mdash; its
+     corners keep their angles wherever it goes, while its size does not: the local
+     magnification is <code>&lambda; = 2/(1 + |z|&sup2;)</code>, reported in the panel.
+     It is largest at the origin and dies away toward infinity, so the neighbourhood of
+     the pole marked <code>&infin;</code> is smeared over the whole far reach of the
+     plane.</p>
+  <p><b>Which pole to project from.</b> That last fact settles a cartographic
+     question. Whichever pole we project from is the one whose neighbourhood gets
+     stretched beyond recognition, so we project from the pole we care least about. For
+     a map of the Earth that is the south pole, and this lesson projects from the south
+     by default; the Antarctic is what gets banished to the edge. There is a second
+     reason, harder to see and just as real: projected from the south, a figure and its
+     image on the sphere have the <i>same</i> handedness &mdash; switch the pole to the
+     north and watch the flag's pennant change sides.</p>
+  <footer>erlangen-program &middot; riemann-sphere lesson &middot; CC BY 4.0 &middot;
+     &ldquo;The Riemann sphere&rdquo; by Eduardo Due&ntilde;ez</footer>
+</div>
+
+<script>
+'use strict';
+
+/* ================================================================
+ * Named constants (Sec. 5.3, criterion 10): every constant of the
+ * plan appears once, here.
+ * ================================================================ */
+
+// Sec. 3.1: the projection.  sigma = -1 projects from the south pole and is
+// the default, for the two independent reasons of Sec. 3.4 (distortion) and
+// Sec. 3.5 (orientation); sigma = +1 projects from the north.
+const SIGMA_INIT = -1;
+const Z_INIT     = { re: 1.55, im: 0.85 };   // outside the unit circle, so that
+                                             // z and its image P read apart
+const Z_MAX      = 40;      // clamp on |z| while dragging (Sec. 5.1)
+
+// Sec. 3.6: the scene.  The sphere is the unit sphere; the plane is Z = 0.
+const SPHERE_ALPHA      = 0.30;   // opacity of the near wall
+const SPHERE_ALPHA_FAR  = 0.20;   // the far wall, dimmed as a depth cue
+const PLANE_ALPHA       = 0.34;
+const PLANE_FULL = 3.2, PLANE_FADE = 11.0;   // the plane fades away between these radii
+const RAY_RADIUS  = 0.018;   // the projecting capsule
+const MARK_RADIUS = 0.055;   // the two markers
+
+// Sec. 3.7: decoration.
+// Decoration is layered, lightest first, so that each class can be weighted
+// on its own: the plane's grid is faint, its axes darker, and its unit circle
+// — which IS the equator (Sec. 3.3), the identification this lesson exists to
+// make — the most emphatic thing on the plane.
+const GRAT_DEG     = 30;     // graticule spacing, in degrees
+const GRID_STEP    = 1.0;    // the plane's grid spacing, in plane units
+const GRID_HALF_PX = 0.8;    // half-widths of the decoration lines, in pixels
+const AXIS_HALF_PX = 1.3;
+const CIRC_HALF_PX = 2.0;
+const GRAT_HALF_PX = 0.9;
+const GRAZE_MIN    = 0.08;   // floor on |cos(incidence)| in the footprint
+
+// The pennant flag of the two existing lessons, carried along at z as a
+// distance field in the plane (Sec. 3.5's dividend).
+const FLAG_SCALE  = 0.60;
+const FLAG_STROKE = 0.075;   // in template units
+
+// Colors, and the opacity each decoration class reaches where it is solid.
+const BG_LOW = [0.855, 0.870, 0.900], BG_HIGH = [0.940, 0.955, 0.980];
+const SPHERE_COL = [0.42, 0.60, 0.78];
+const PLANE_COL  = [0.87, 0.855, 0.80];
+const GRID_COL = [0.34, 0.39, 0.45], GRID_ALPHA = 0.40;
+const AXIS_COL = [0.10, 0.12, 0.18], AXIS_ALPHA = 0.78;
+const EQ_COL   = [0.02, 0.40, 0.36], EQ_ALPHA   = 0.96;   // the unit circle = the equator
+const GRAT_COL = [0.09, 0.15, 0.26], GRAT_ALPHA = 0.54;
+const FLAG_COL = [1.00, 1.00, 1.00], FLAG_ALPHA = 0.96;
+// White alone is invisible against the pale plane (0.20 of channel contrast),
+// so the figure is drawn as the other lessons' white flag with a dark border,
+// which also keeps it legible over the sphere's glass.
+const FLAG_EDGE_COL = [0.10, 0.10, 0.16];
+const FLAG_EDGE_PX  = 1.2;   // small enough that a shrunken image is not all border
+const RAY_COL    = [0.78, 0.00, 0.46];   // the projecting line
+const MARK_Z_COL = [0.07, 0.08, 0.12];   // the plane point z, dark against a light plane
+const MARK_P_COL = [0.92, 0.69, 0.04];   // its image P
+const LIGHT_DIR  = [0.4208, -0.6211, 0.6612];   // a unit vector
+
+// Sec. 5.1: the camera.
+const FOV          = 0.85;   // vertical field of view, radians
+const CAM_INIT     = { az: -1.02, el: 0.40, dist: 4.3 };
+const CAM_DIST_MIN = 1.35, CAM_DIST_MAX = 26;
+const EL_CLAMP     = Math.PI / 2 - 0.04;   // keep the up-vector well defined
+const ORBIT_SPEED  = 0.0075;               // radians per pixel of drag
+const HIT_PX       = 16;                   // pointer radius for grabbing z
+
+// Typography of the overlay, matching the other two lessons.
+const LABEL_FONT = 'bold italic 26px system-ui, sans-serif';
+const LABEL_DARK = { fill: '#111', halo: 'rgba(255,255,255,0.95)' };
+const LABEL_LIGHT = { fill: '#fff', halo: 'rgba(15,15,25,0.78)' };
+
+/* ================================================================
+ * State: one object; all rendering is a pure function of it (Sec. 5.1).
+ * ================================================================ */
+
+const state = {
+  z:     { re: Z_INIT.re, im: Z_INIT.im },
+  sigma: SIGMA_INIT,
+  cam:   { az: CAM_INIT.az, el: CAM_INIT.el, dist: CAM_INIT.dist },
+  showFlag: false,
+  showGrat: true,
+};
+
+/* ================================================================
+ * Vector helpers.
+ * ================================================================ */
+
+const add   = (a, b) => [a[0]+b[0], a[1]+b[1], a[2]+b[2]];
+const sub   = (a, b) => [a[0]-b[0], a[1]-b[1], a[2]-b[2]];
+const scale = (a, s) => [a[0]*s, a[1]*s, a[2]*s];
+const dot   = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+const cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+const len   = a => Math.hypot(a[0], a[1], a[2]);
+const norm  = a => scale(a, 1 / len(a));
+const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
+
+/* ================================================================
+ * Sec. 3.1 and 3.2: the projection, and the segment carrying it.
+ *
+ * The sphere point is obtained as a point ON the segment, at parameter t*,
+ * and never computed independently (Sec. 3.2).  That this agrees with the
+ * closed form of Sec. 3.1 is immediate: with Pole = (0,0,sigma) and the plane
+ * point (x,y,0),
+ *     Pole + t*[(x,y,0) - Pole] = ( 2x/(1+|z|^2), 2y/(1+|z|^2), sigma(1-t*) )
+ * and sigma(1 - t*) = sigma(|z|^2 - 1)/(1 + |z|^2) = Z_sigma(z).
+ * ================================================================ */
+
+function derived() {
+  const z = state.z, r2 = z.re*z.re + z.im*z.im;
+  const tStar   = 2 / (1 + r2);              // Sec. 3.1
+  const lambda  = tStar;                     // Sec. 3.4: the same 2/(1+|z|^2)
+  const pole    = [0, 0, state.sigma];
+  const planePt = [z.re, z.im, 0];
+  const along   = t => add(pole, scale(sub(planePt, pole), t));
+  const P       = along(tStar);              // the sphere point, on the segment
+  // The plan's Sec. 3.2 says t* lies in (0,1) and stops the segment at the
+  // plane point; that holds only for |z| > 1.  For |z| < 1 we have t* > 1, so
+  // the segment must run to t_end = max(1, t*) for the marker to lie on it.
+  const tEnd    = Math.max(1, tStar);
+  const capEnd  = along(tEnd);
+  return { r2, tStar, lambda, pole, planePt, P, tEnd, capEnd };
+}
+
+/* ================================================================
+ * Sec. 5.1: the orbit camera.
+ * ================================================================ */
+
+function camera() {
+  const c = state.cam, ce = Math.cos(c.el), se = Math.sin(c.el);
+  const o = [c.dist*ce*Math.cos(c.az), c.dist*ce*Math.sin(c.az), c.dist*se];
+  const f = norm(scale(o, -1));                 // toward the origin
+  const r = norm(cross(f, [0, 0, 1]));          // f x up: the viewer's right
+  const u = cross(r, f);
+  return { o, f, r, u, tanHalf: Math.tan(FOV/2) };
+}
+
+// A point of space to overlay pixels; null when behind the camera.  The
+// formula is the exact inverse of the shader's ray construction.
+function project(cam, p) {
+  const v = sub(p, cam.o), c = dot(v, cam.f);
+  if (c <= 1e-4) return null;
+  const ux = dot(v, cam.r) / c / (2*cam.tanHalf);
+  const uy = dot(v, cam.u) / c / (2*cam.tanHalf);
+  return { x: W/2 + ux*H, y: H/2 - uy*H };
+}
+
+// Overlay pixels to a world ray (Sec. 3.2's drag mechanism).
+function rayThrough(cam, px, py) {
+  const ux = (px - W/2) / H, uy = (H/2 - py) / H, k = 2*cam.tanHalf;
+  return norm(add(cam.f, add(scale(cam.r, ux*k), scale(cam.u, uy*k))));
+}
+
+/* ================================================================
+ * WebGL2: the scene, cast and composited per pixel (Sec. 3.6).
+ * ================================================================ */
+
+const glCanvas = document.getElementById('glcanvas');
+const gl = glCanvas.getContext('webgl2', { antialias: false, depth: false, stencil: false });
+if (!gl) document.getElementById('nogl').style.display = 'flex';
+
+function glf(x) { const s = String(x); return /[.eE]/.test(s) ? s : s + '.0'; }
+function gv3(a) { return 'vec3(' + a.map(glf).join(', ') + ')'; }
+
+const VERT_SRC = `#version 300 es
+// One full-screen triangle; no vertex buffers needed.
+void main() {
+  vec2 p = vec2(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0);
+  gl_Position = vec4(p, 0.0, 1.0);
+}`;
+
+// NOTE: comments inside the GLSL are kept plain-ASCII ("Sec. 3.6" for the
+// section sign, "sigma" for the letter), since WebGL restricts the shader
+// source character set.
+const FRAG_SRC = `#version 300 es
+precision highp float;
+
+uniform vec2  uRes;
+uniform vec3  uO, uR, uU, uF;   // camera position and basis (Sec. 5.1)
+uniform float uTanHalf;
+uniform float uSigma;           // -1 from the south pole, +1 from the north
+uniform vec2  uZ;               // the dragged plane point
+uniform float uShowFlag, uShowGrat;
+
+out vec4 fragColor;
+
+const float PI = 3.141592653589793;
+const float GRAT = ${glf(GRAT_DEG)} * PI / 180.0;
+
+/* ---- Sec. 3.7: decoration, and its antialiasing ----
+ * The line idiom is the two existing lessons' verbatim: u is measured in
+ * periods and pu is the footprint of u in periods per pixel; the line is
+ * feathered over about a pixel and dissolved once the period itself falls
+ * below a few pixels, which is what keeps the plane's grid from aliasing at
+ * grazing incidence and the meridians from aliasing at the poles.  Note that
+ * fwidth() is deliberately NOT used: it spikes across the branch cut of the
+ * longitude and would draw a spurious seam down one meridian, the identical
+ * fault spiral-groups.html documents for the branch cut of arg.
+ */
+float gridLine(float u, float pu, float halfPx) {
+  float d = (0.5 - abs(fract(u) - 0.5)) / max(pu, 1e-9);
+  float line = 1.0 - smoothstep(halfPx - 0.8, halfPx + 0.8, d);
+  line *= 1.0 - smoothstep(0.18, 0.45, pu);
+  return line;
+}
+
+// A single curve (not a periodic family): feather on the signed distance.
+float curveLine(float dPx, float halfPx) {
+  return 1.0 - smoothstep(halfPx - 0.8, halfPx + 0.8, abs(dPx));
+}
+
+// Sec. 3.1, inverted: the plane point of a sphere point.  The denominator
+// vanishes exactly at Pole(sigma), which answers to z = infinity.
+vec2 planeOf(vec3 P) {
+  float den = 1.0 - uSigma * P.z;
+  return P.xy / max(den, 1e-5);
+}
+
+float sdSeg(vec2 p, vec2 a, vec2 b) {
+  vec2 pa = p - a, ba = b - a;
+  return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0));
+}
+float sdTri(vec2 p, vec2 p0, vec2 p1, vec2 p2) {
+  vec2 e0 = p1-p0, e1 = p2-p1, e2 = p0-p2;
+  vec2 v0 = p-p0,  v1 = p-p1,  v2 = p-p2;
+  vec2 q0 = v0 - e0*clamp(dot(v0,e0)/dot(e0,e0), 0.0, 1.0);
+  vec2 q1 = v1 - e1*clamp(dot(v1,e1)/dot(e1,e1), 0.0, 1.0);
+  vec2 q2 = v2 - e2*clamp(dot(v2,e2)/dot(e2,e2), 0.0, 1.0);
+  float s = sign(e0.x*e2.y - e0.y*e2.x);
+  vec2 d = min(min(vec2(dot(q0,q0), s*(v0.x*e0.y - v0.y*e0.x)),
+                   vec2(dot(q1,q1), s*(v1.x*e1.y - v1.y*e1.x))),
+                   vec2(dot(q2,q2), s*(v2.x*e2.y - v2.y*e2.x)));
+  return -sqrt(d.x) * sign(d.y);
+}
+
+// The pennant flag, anchored at z, as a distance field in PLANE units.
+// Evaluating it on the sphere as well (through planeOf) is what exhibits
+// conformality and handedness in one picture, and is a rehearsal of the world
+// map of Sec. 6.2: decoration is a function of the hit point, not geometry.
+// Returns (fill, edge).  The flag is a filled region, not a zero-set, so its
+// signed distance must NOT be folded through abs() for the fill: that is solid
+// well inside (d < 0) and feathers over about a pixel across the boundary.
+// The edge is the zero-set proper, and there abs() is right.
+vec2 flagInk(vec2 z, float fpz) {
+  vec2 q = (z - uZ) / ${glf(FLAG_SCALE)};
+  float dStaff = sdSeg(q, vec2(0.0, 0.0), vec2(0.0, -1.0)) - ${glf(FLAG_STROKE)};
+  float dPenn  = sdTri(q, vec2(0.0, -0.10), vec2(-0.62, -0.28), vec2(0.0, -0.46));
+  float d = min(dStaff, dPenn) * ${glf(FLAG_SCALE)} / fpz;   // signed, in pixels
+  return vec2(1.0 - smoothstep(-0.8, 0.8, d),
+              1.0 - smoothstep(${glf(FLAG_EDGE_PX)} - 0.8, ${glf(FLAG_EDGE_PX)} + 0.8, abs(d)));
+}
+
+// The plane Z = 0: a grid, its two axes, and its unit circle -- which IS the
+// equator (Sec. 3.3), no equator curve being drawn anywhere.
+void planeShade(vec2 z, float fpz, out vec3 col, out float alpha) {
+  col = ${gv3(PLANE_COL)};
+  alpha = ${glf(PLANE_ALPHA)};
+  float k;
+  // the grid, faintest
+  k = max(gridLine(z.x / ${glf(GRID_STEP)}, fpz / ${glf(GRID_STEP)}, ${glf(GRID_HALF_PX)}),
+          gridLine(z.y / ${glf(GRID_STEP)}, fpz / ${glf(GRID_STEP)}, ${glf(GRID_HALF_PX)}));
+  col = mix(col, ${gv3(GRID_COL)}, k);  alpha = mix(alpha, ${glf(GRID_ALPHA)}, k);
+  // the two axes
+  k = max(curveLine(z.x / fpz, ${glf(AXIS_HALF_PX)}), curveLine(z.y / fpz, ${glf(AXIS_HALF_PX)}));
+  col = mix(col, ${gv3(AXIS_COL)}, k);  alpha = mix(alpha, ${glf(AXIS_ALPHA)}, k);
+  // the unit circle, which is the equator (Sec. 3.3) and drawn as such
+  k = curveLine((length(z) - 1.0) / fpz, ${glf(CIRC_HALF_PX)});
+  col = mix(col, ${gv3(EQ_COL)}, k);    alpha = mix(alpha, ${glf(EQ_ALPHA)}, k);
+  if (uShowFlag > 0.5) {
+    vec2 f = flagInk(z, fpz);
+    col = mix(col, ${gv3(FLAG_COL)}, f.x);       alpha = mix(alpha, ${glf(FLAG_ALPHA)}, f.x);
+    col = mix(col, ${gv3(FLAG_EDGE_COL)}, f.y);  alpha = mix(alpha, ${glf(FLAG_ALPHA)}, f.y);
+  }
+  alpha *= 1.0 - smoothstep(${glf(PLANE_FULL)}, ${glf(PLANE_FADE)}, length(z));
+}
+
+// The sphere: a graticule in latitude and longitude, plus the flag pulled
+// back through the projection.
+void sphereShade(vec3 P, float fp, bool far, out vec3 col, out float alpha) {
+  vec3 nrm = far ? -P : P;                       // the face we actually see
+  float lam = 0.42 + 0.58 * max(dot(nrm, ${gv3(LIGHT_DIR)}), 0.0);
+  col = ${gv3(SPHERE_COL)} * lam;
+  alpha = far ? ${glf(SPHERE_ALPHA_FAR)} : ${glf(SPHERE_ALPHA)};
+  if (uShowGrat > 0.5) {
+    float lat = asin(clamp(P.z, -1.0, 1.0));
+    float lon = atan(P.y, P.x);
+    // Arclength along a meridian is d(lat); along a parallel it is
+    // cos(lat) d(lon).  Hence the longitude's footprint blows up at the poles,
+    // which is exactly why the meridians must dissolve there.
+    float pLat = fp / GRAT;
+    float pLon = fp / (GRAT * max(cos(lat), 1e-3));
+    float k = max(gridLine(lat / GRAT, pLat, ${glf(GRAT_HALF_PX)}),
+                  gridLine(lon / GRAT, pLon, ${glf(GRAT_HALF_PX)}));
+    col = mix(col, ${gv3(GRAT_COL)}, k);
+    alpha = mix(alpha, ${glf(GRAT_ALPHA)} * (far ? 0.7 : 1.0), k);
+  }
+  if (uShowFlag > 0.5) {
+    vec2 z = planeOf(P);
+    // Sec. 3.4: ds_sphere = lambda |dz| with lambda = 2/(1+|z|^2), so a
+    // pixel's footprint in plane units is fp / lambda.
+    float fpz = fp * (1.0 + dot(z, z)) * 0.5;
+    vec2 f = flagInk(z, fpz);
+    col = mix(col, ${gv3(FLAG_COL)} * (0.55 + 0.45 * lam), f.x);
+    alpha = mix(alpha, ${glf(FLAG_ALPHA)}, f.x);
+    col = mix(col, ${gv3(FLAG_EDGE_COL)}, f.y);
+    alpha = mix(alpha, ${glf(FLAG_ALPHA)}, f.y);
+  }
+}
+
+/* ---- Sec. 3.6: the analytic hits ---- */
+
+// Nearest hit of a ball, or -1.
+float ballT(vec3 ro, vec3 rd, vec3 c, float r) {
+  vec3 oc = ro - c;
+  float b = dot(oc, rd), q = dot(oc, oc) - r*r, h = b*b - q;
+  if (h < 0.0) return -1.0;
+  float t = -b - sqrt(h);
+  return t > 0.0 ? t : -1.0;
+}
+// Nearest hit of a capsule (segment a->b, radius r), or -1.
+float capT(vec3 ro, vec3 rd, vec3 a, vec3 b, float r) {
+  vec3 ba = b - a, oa = ro - a;
+  float baba = dot(ba, ba), bard = dot(ba, rd), baoa = dot(ba, oa);
+  float rdoa = dot(rd, oa), oaoa = dot(oa, oa);
+  float A = baba - bard*bard;
+  float B = baba*rdoa - baoa*bard;
+  float C = baba*oaoa - baoa*baoa - r*r*baba;
+  float h = B*B - A*C;
+  if (h >= 0.0 && abs(A) > 1e-9) {
+    float t = (-B - sqrt(h)) / A;
+    float y = baoa + t*bard;
+    if (y > 0.0 && y < baba) return t > 0.0 ? t : -1.0;
+    vec3 oc = (y <= 0.0) ? oa : ro - b;   // the caps
+    B = dot(rd, oc); C = dot(oc, oc) - r*r;
+    h = B*B - C;
+    if (h > 0.0) { t = -B - sqrt(h); return t > 0.0 ? t : -1.0; }
+  }
+  return -1.0;
+}
+vec3 capNormal(vec3 p, vec3 a, vec3 b) {
+  vec3 ba = b - a, pa = p - a;
+  return normalize(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0));
+}
+
+// The screen-space footprint of a surface point, in world units per pixel:
+// the ray's angular step times its length, divided by the cosine of the
+// incidence angle -- which is what makes a plane seen edge-on alias, and what
+// the dissolve term in gridLine() then handles.
+float footprint(float t, vec3 rd, vec3 nrm, float pixAng) {
+  return t * pixAng / max(abs(dot(rd, nrm)), ${glf(GRAZE_MIN)});
+}
+
+void main() {
+  vec2 uv = (gl_FragCoord.xy - 0.5*uRes) / uRes.y;
+  float k = 2.0 * uTanHalf;
+  vec3 rd = normalize(uF + uR*(uv.x*k) + uU*(uv.y*k));
+  float pixAng = k / uRes.y;                 // radians per pixel, near the axis
+
+  // Sec. 3.2: the segment, and the sphere point placed ON it.
+  vec3 poleP  = vec3(0.0, 0.0, uSigma);
+  vec3 planeP = vec3(uZ, 0.0);
+  float tStar = 2.0 / (1.0 + dot(uZ, uZ));
+  vec3 markP  = poleP + (planeP - poleP) * tStar;
+  vec3 capB   = poleP + (planeP - poleP) * max(1.0, tStar);
+
+  // ---- gather the hits (at most six) ----
+  float ht[6]; vec4 hc[6]; int n = 0;
+
+  // the sphere: two hits, and its silhouette feathered from the discriminant
+  float oo = dot(uO, uO);
+  float b  = dot(uO, rd), c = oo - 1.0, disc = b*b - c;
+  if (disc > 0.0) {
+    float sq = sqrt(disc);
+    // Screen distance to the silhouette in pixels: the distance from the
+    // sphere's centre to the ray is sqrt(1 - disc), and 1 - sqrt(1 - disc) is
+    // about disc/2 near the silhouette, which a ray subtends over |uO| pixAng.
+    float silPx = disc / (2.0 * sqrt(max(oo, 1e-6)) * pixAng);
+    float cov = smoothstep(0.0, 1.0, silPx);
+    float t1 = -b - sq, t2 = -b + sq;
+    for (int s = 0; s < 2; s++) {
+      float t = (s == 0) ? t1 : t2;
+      if (t <= 0.0) continue;
+      vec3 P = uO + rd*t;
+      vec3 col; float a;
+      sphereShade(P, footprint(t, rd, P, pixAng), s == 1, col, a);
+      if (n < 6) { ht[n] = t; hc[n] = vec4(col, a * cov); n++; }
+    }
+  }
+  // the plane
+  if (abs(rd.z) > 1e-6) {
+    float t = -uO.z / rd.z;
+    if (t > 0.0) {
+      vec3 Q = uO + rd*t;
+      vec3 col; float a;
+      planeShade(Q.xy, footprint(t, rd, vec3(0.0, 0.0, 1.0), pixAng), col, a);
+      if (a > 0.002 && n < 6) { ht[n] = t; hc[n] = vec4(col, a); n++; }
+    }
+  }
+  // the projecting segment, and the two markers -- opaque, so only the
+  // nearest hit of each can matter
+  float tc = capT(uO, rd, poleP, capB, ${glf(RAY_RADIUS)});
+  if (tc > 0.0 && n < 6) {
+    vec3 nn = capNormal(uO + rd*tc, poleP, capB);
+    float l = 0.5 + 0.5*max(dot(nn, ${gv3(LIGHT_DIR)}), 0.0);
+    ht[n] = tc; hc[n] = vec4(${gv3(RAY_COL)} * l, 1.0); n++;
+  }
+  for (int m = 0; m < 2; m++) {
+    vec3 ctr = (m == 0) ? planeP : markP;
+    vec3 bc  = (m == 0) ? ${gv3(MARK_Z_COL)} : ${gv3(MARK_P_COL)};
+    float tb = ballT(uO, rd, ctr, ${glf(MARK_RADIUS)});
+    if (tb > 0.0 && n < 6) {
+      vec3 nn = normalize(uO + rd*tb - ctr);
+      float l = 0.45 + 0.55*max(dot(nn, ${gv3(LIGHT_DIR)}), 0.0);
+      ht[n] = tb; hc[n] = vec4(bc * l, 1.0); n++;
+    }
+  }
+
+  // ---- sort by depth, then composite front to back (Sec. 3.6) ----
+  for (int i = 1; i < 6; i++) {
+    if (i >= n) break;
+    float kt = ht[i]; vec4 kc = hc[i];
+    int j = i - 1;
+    for (int p = 0; p < 6; p++) {
+      if (j < 0 || ht[j] <= kt) break;
+      ht[j+1] = ht[j]; hc[j+1] = hc[j]; j--;
+    }
+    ht[j+1] = kt; hc[j+1] = kc;
+  }
+  vec3 C = vec3(0.0); float T = 1.0;
+  for (int i = 0; i < 6; i++) {
+    if (i >= n) break;
+    float a = clamp(hc[i].a, 0.0, 1.0);
+    C += T * a * hc[i].rgb;
+    T *= 1.0 - a;
+  }
+  vec3 bg = mix(${gv3(BG_LOW)}, ${gv3(BG_HIGH)}, 0.5 + 0.5*rd.z);
+  fragColor = vec4(C + T * bg, 1.0);
+}`;
+
+let program = null, uni = {};
+if (gl) {
+  const compile = (type, src) => {
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+      throw new Error('shader: ' + gl.getShaderInfoLog(sh));
+    }
+    return sh;
+  };
+  program = gl.createProgram();
+  gl.attachShader(program, compile(gl.VERTEX_SHADER, VERT_SRC));
+  gl.attachShader(program, compile(gl.FRAGMENT_SHADER, FRAG_SRC));
+  gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    throw new Error('link: ' + gl.getProgramInfoLog(program));
+  }
+  gl.useProgram(program);
+  for (const nm of ['uRes','uO','uR','uU','uF','uTanHalf','uSigma','uZ','uShowFlag','uShowGrat']) {
+    uni[nm] = gl.getUniformLocation(program, nm);
+  }
+}
+
+/* ================================================================
+ * The Canvas-2D overlay: text only (Sec. 5.1).
+ * ================================================================ */
+
+const overlay = document.getElementById('overlay');
+const ctx = overlay.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+
+function drawLabel(txt, x, y, scheme) {
+  ctx.save();
+  ctx.font = LABEL_FONT;
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = scheme.halo;
+  ctx.strokeText(txt, x + 10, y - 10);
+  ctx.fillStyle = scheme.fill;
+  ctx.fillText(txt, x + 10, y - 10);
+  ctx.restore();
+}
+
+/* ================================================================
+ * Rendering: a pure function of the state (Sec. 5.1).
+ * ================================================================ */
+
+function draw() {
+  const dv = derived(), cam = camera();
+
+  if (gl) {
+    gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+    gl.uniform2f(uni.uRes, glCanvas.width, glCanvas.height);
+    gl.uniform3f(uni.uO, cam.o[0], cam.o[1], cam.o[2]);
+    gl.uniform3f(uni.uR, cam.r[0], cam.r[1], cam.r[2]);
+    gl.uniform3f(uni.uU, cam.u[0], cam.u[1], cam.u[2]);
+    gl.uniform3f(uni.uF, cam.f[0], cam.f[1], cam.f[2]);
+    gl.uniform1f(uni.uTanHalf, cam.tanHalf);
+    gl.uniform1f(uni.uSigma, state.sigma);
+    gl.uniform2f(uni.uZ, state.z.re, state.z.im);
+    gl.uniform1f(uni.uShowFlag, state.showFlag ? 1 : 0);
+    gl.uniform1f(uni.uShowGrat, state.showGrat ? 1 : 0);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  // The pole projected from answers to z = infinity; the opposite pole to
+  // z = 0 (Sec. 3.1).  Lettering them so says the whole correspondence.
+  const marks = [
+    [dv.pole,                    '∞', LABEL_DARK],
+    [[0, 0, -state.sigma],       '0',      LABEL_DARK],
+    [dv.planePt,                 'z',      LABEL_DARK],
+    [dv.P,                       'P',      LABEL_DARK],
+  ];
+  for (const [p, txt, sch] of marks) {
+    const q = project(cam, p);
+    if (q) drawLabel(txt, q.x, q.y, sch);
+  }
+
+  const z = state.z;
+  document.getElementById('zReadout').textContent =
+    'z = ' + z.re.toFixed(3) + (z.im < 0 ? ' − ' : ' + ') + Math.abs(z.im).toFixed(3) + 'i';
+  document.getElementById('pReadout').textContent =
+    'P = (' + dv.P.map(v => v.toFixed(3)).join(', ') + ')';
+  document.getElementById('lamReadout').textContent =
+    '|z| = ' + Math.sqrt(dv.r2).toFixed(3) + ',  magnification λ = ' + dv.lambda.toFixed(3);
+}
+
+let renderQueued = false;
+function requestRender() {
+  if (!renderQueued) { renderQueued = true; requestAnimationFrame(() => { renderQueued = false; draw(); }); }
+}
+
+/* ================================================================
+ * Interaction (Sec. 3.2, Sec. 5.1).
+ * ================================================================ */
+
+let dragging = null, dragStart = null;
+
+overlay.addEventListener('pointerdown', (ev) => {
+  const x = ev.offsetX, y = ev.offsetY, cam = camera(), dv = derived();
+  const q = project(cam, dv.planePt);
+  if (q && Math.hypot(q.x - x, q.y - y) <= HIT_PX) {
+    dragging = 'z';                       // grabbing z takes precedence
+  } else {
+    dragging = 'orbit';
+    dragStart = { x, y, az: state.cam.az, el: state.cam.el };
+  }
+  overlay.setPointerCapture(ev.pointerId);
+  overlay.style.cursor = 'grabbing';
+  requestRender();
+});
+
+overlay.addEventListener('pointermove', (ev) => {
+  const x = ev.offsetX, y = ev.offsetY;
+  if (!dragging) {
+    const q = project(camera(), derived().planePt);
+    overlay.style.cursor = (q && Math.hypot(q.x - x, q.y - y) <= HIT_PX) ? 'pointer' : 'grab';
+    return;
+  }
+  if (dragging === 'z') {
+    // Sec. 3.2: unproject the pointer ray and meet the plane Z = 0.  Near
+    // grazing incidence that meeting runs away to the horizon, so |z| is
+    // clamped rather than allowed to become huge or non-finite (Sec. 5.1).
+    const cam = camera(), rd = rayThrough(cam, x, y);
+    if (Math.abs(rd[2]) > 1e-5) {
+      const t = -cam.o[2] / rd[2];
+      if (t > 0) {
+        let zx = cam.o[0] + t*rd[0], zy = cam.o[1] + t*rd[1];
+        const r = Math.hypot(zx, zy);
+        if (r > Z_MAX) { zx *= Z_MAX/r; zy *= Z_MAX/r; }
+        state.z = { re: zx, im: zy };
+      }
+    }
+  } else {
+    state.cam.az = dragStart.az - (x - dragStart.x) * ORBIT_SPEED;
+    state.cam.el = clamp(dragStart.el + (y - dragStart.y) * ORBIT_SPEED, -EL_CLAMP, EL_CLAMP);
+  }
+  requestRender();
+});
+
+function endDrag() { dragging = null; overlay.style.cursor = 'grab'; requestRender(); }
+overlay.addEventListener('pointerup', endDrag);
+overlay.addEventListener('pointercancel', endDrag);
+
+overlay.addEventListener('wheel', (ev) => {
+  ev.preventDefault();
+  state.cam.dist = clamp(state.cam.dist * Math.exp(ev.deltaY * 0.0012), CAM_DIST_MIN, CAM_DIST_MAX);
+  requestRender();
+}, { passive: false });
+
+/* ================================================================
+ * Controls.
+ * ================================================================ */
+
+const poleBox = document.getElementById('poleBtns');
+const poleBtnEls = [];
+// The two poles are one sign flip in the shared formula of Sec. 3.1, never
+// two branches: the buttons set state.sigma and nothing else.
+for (const [s, label] of [[-1, 'the south pole'], [1, 'the north pole']]) {
+  const btn = document.createElement('button');
+  btn.textContent = label;
+  btn.addEventListener('click', () => setSigma(s));
+  poleBox.appendChild(btn);
+  poleBtnEls.push({ s, btn });
+}
+function refreshPoleButtons() {
+  poleBtnEls.forEach(({ s, btn }) => btn.classList.toggle('sel', s === state.sigma));
+}
+function setSigma(s) {
+  state.sigma = (s < 0) ? -1 : 1;
+  refreshPoleButtons();
+  requestRender();
+}
+
+document.getElementById('chkFlag').addEventListener('change', (ev) => {
+  state.showFlag = ev.target.checked; requestRender();
+});
+document.getElementById('chkGrat').addEventListener('change', (ev) => {
+  state.showGrat = ev.target.checked; requestRender();
+});
+
+function reset() {
+  state.z = { re: Z_INIT.re, im: Z_INIT.im };
+  state.cam = { az: CAM_INIT.az, el: CAM_INIT.el, dist: CAM_INIT.dist };
+  requestRender();
+}
+document.getElementById('btnReset').addEventListener('click', reset);
+
+// The mini-lesson is a checkbox, like the other display toggles.  Its own
+// panel carries a cross that closes it as well, so the two are kept in step.
+const captions = document.getElementById('captions');
+const chkNotes = document.getElementById('chkNotes');
+function setNotes(on) {
+  chkNotes.checked = on;
+  captions.classList.toggle('hidden', !on);
+}
+chkNotes.addEventListener('change', () => setNotes(chkNotes.checked));
+document.getElementById('btnCloseNotes').addEventListener('click', () => setNotes(false));
+
+/* ---------------- the control panel: full, compact, hidden ----------------
+ * At full size the panel covers most of a phone screen held upright, so it can
+ * be stepped down.  "compact" drops the prose and keeps the controls; "hidden"
+ * leaves only the hamburger button.
+ * -------------------------------------------------------------------------- */
+
+const controlsEl  = document.getElementById('controls');
+const hamburgerEl = document.getElementById('hamburger');
+const panelExpand = document.getElementById('panelExpand');
+const panelHide   = document.getElementById('panelHide');
+let panelLastOpen = 'full';
+
+function setPanel(s) {
+  if (s !== 'hidden') panelLastOpen = s;
+  controlsEl.dataset.panel = s;
+  hamburgerEl.classList.toggle('hidden', s !== 'hidden');
+  panelExpand.textContent = s === 'compact' ? '▾' : '▴';
+  panelExpand.title = s === 'compact' ? 'expand the panel' : 'collapse to the controls';
+  panelExpand.setAttribute('aria-label', panelExpand.title);
+  hamburgerEl.setAttribute('aria-expanded', String(s !== 'hidden'));
+}
+panelExpand.addEventListener('click', () =>
+  setPanel(controlsEl.dataset.panel === 'compact' ? 'full' : 'compact'));
+panelHide.addEventListener('click', () => setPanel('hidden'));
+hamburgerEl.addEventListener('click', () => setPanel(panelLastOpen));
+
+/* ================================================================
+ * Resize, console interface, init.
+ * ================================================================ */
+
+function resize() {
+  DPR = window.devicePixelRatio || 1;
+  W = window.innerWidth; H = window.innerHeight;
+  for (const cv of [glCanvas, overlay]) {
+    cv.width = Math.max(1, Math.round(W * DPR));
+    cv.height = Math.max(1, Math.round(H * DPR));
+  }
+  requestRender();
+}
+window.addEventListener('resize', resize);
+
+window.sphere = {
+  state,
+  setZ(re, im) {
+    const r = Math.hypot(re, im);
+    state.z = (r > Z_MAX) ? { re: re*Z_MAX/r, im: im*Z_MAX/r } : { re, im };
+    requestRender();
+  },
+  setSigma,
+  setCam(az, el, dist) {
+    state.cam = { az, el: clamp(el, -EL_CLAMP, EL_CLAMP),
+                  dist: clamp(dist, CAM_DIST_MIN, CAM_DIST_MAX) };
+    requestRender();
+  },
+  derived, camera, project, rayThrough,
+  reset,
+};
+
+refreshPoleButtons();
+const SMALL_SCREEN = window.innerWidth < 720 || window.innerHeight < 620;
+setPanel(SMALL_SCREEN ? 'compact' : 'full');
+setNotes(!SMALL_SCREEN);
+resize();
+window.__ready = true;
+</script>
+</body>
+</html>
