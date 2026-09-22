@@ -46,17 +46,21 @@ function checkTrue(label, pass, detail) {
 // page (the WebGL context is created without preserveDrawingBuffer, so the
 // sampling is done by re-drawing into a 2-D canvas immediately after a frame).
 async function samplePixels(page, points) {
-  return page.evaluate(async (pts) => {
-    // Force a fresh frame, then copy the GL canvas before the compositor
-    // discards its drawing buffer.
-    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  return page.evaluate((pts) => {
+    // The drawing buffer is not preserved, so waiting for a frame and then
+    // copying yields a cleared canvas — every sample comes back black and
+    // every colour comparison passes vacuously.  The page's draw() is a
+    // top-level function declaration, hence a global; calling it renders
+    // synchronously, so the copy in the same task sees the real pixels.
+    draw();
     const gl = document.getElementById('glcanvas');
     const tmp = document.createElement('canvas');
     tmp.width = gl.width; tmp.height = gl.height;
-    tmp.getContext('2d').drawImage(gl, 0, 0);
-    const c2 = tmp.getContext('2d');
+    const c2 = tmp.getContext('2d', { willReadFrequently: true });
+    c2.drawImage(gl, 0, 0);
+    const clamp = (v, hi) => Math.max(0, Math.min(hi - 1, Math.round(v)));
     return pts.map(([x, y]) => {
-      const d = c2.getImageData(Math.round(x), Math.round(y), 1, 1).data;
+      const d = c2.getImageData(clamp(x, gl.width), clamp(y, gl.height), 1, 1).data;
       return [d[0], d[1], d[2]];
     });
   }, points);
@@ -76,6 +80,18 @@ async function toDevicePx(page, zs) {
 }
 
 const dist = (p, q) => Math.max(Math.abs(p[0] - q[0]), Math.abs(p[1] - q[1]), Math.abs(p[2] - q[2]));
+
+// The colouring varies continuously across a cell, so two samples taken half a
+// device pixel apart differ a little; sampling at rounded pixel centres can
+// therefore never be exact, and a fixed tolerance would be a guess.  Calibrate
+// it instead against the gradient measured right there: a genuine seam in the
+// tiling would be tens of levels, while pixel-centre rounding is a couple.
+async function tolerance(page, devPt) {
+  const [c0, cx, cy] = await samplePixels(page,
+    [devPt, [devPt[0] + 1, devPt[1]], [devPt[0], devPt[1] + 1]]);
+  return Math.max(3, Math.ceil(1.5 * Math.max(dist(c0, cx), dist(c0, cy))));
+}
+
 
 (async () => {
   const browser = await chromium.launch({
@@ -113,8 +129,10 @@ const dist = (p, q) => Math.max(Math.abs(p[0] - q[0]), Math.abs(p[1] - q[1]), Ma
     const px = await toDevicePx(page, pts);
     const cols = await samplePixels(page, px);
     const worst = Math.max(...cols.slice(1).map(c => dist(cols[0], c)));
-    checkTrue('square lattice: color constant on the orbit', worst <= 2,
-      `max channel deviation ${worst} over ${shifts.length} translates`);
+    const tol = await tolerance(page, px[0]);
+    checkTrue('square lattice: color constant on the orbit', worst <= tol,
+      `max channel deviation ${worst}, tolerance ${tol} from the local gradient,`
+      + ` over ${shifts.length} translates`);
   }
 
   // ---- a sheared lattice: same test, non-orthogonal generators ----
@@ -127,8 +145,10 @@ const dist = (p, q) => Math.max(Math.abs(p[0] - q[0]), Math.abs(p[1] - q[1]), Ma
     const px = await toDevicePx(page, pts);
     const cols = await samplePixels(page, px);
     const worst = Math.max(...cols.slice(1).map(c => dist(cols[0], c)));
-    checkTrue('sheared lattice: color constant on the orbit', worst <= 2,
-      `max channel deviation ${worst} over ${shifts.length} translates`);
+    const tol = await tolerance(page, px[0]);
+    checkTrue('sheared lattice: color constant on the orbit', worst <= tol,
+      `max channel deviation ${worst}, tolerance ${tol} from the local gradient,`
+      + ` over ${shifts.length} translates`);
   }
 
   // ---- distinct orbits get distinct colors ----
@@ -169,10 +189,11 @@ const dist = (p, q) => Math.max(Math.abs(p[0] - q[0]), Math.abs(p[1] - q[1]), Ma
     const cols = await samplePixels(page, px);
     const alongStrip = Math.max(dist(cols[0], cols[1]), dist(cols[0], cols[2]));
     const acrossPeriod = dist(cols[0], cols[3]);
-    checkTrue('strip: color constant along the direction of the strip', alongStrip <= 2,
-      `max channel deviation ${alongStrip}`);
-    checkTrue('strip: color repeats with period a', acrossPeriod <= 2,
-      `max channel deviation ${acrossPeriod}`);
+    const tolS = await tolerance(page, px[0]);
+    checkTrue('strip: color constant along the direction of the strip', alongStrip <= tolS,
+      `max channel deviation ${alongStrip}, tolerance ${tolS}`);
+    checkTrue('strip: color repeats with period a', acrossPeriod <= tolS,
+      `max channel deviation ${acrossPeriod}, tolerance ${tolS}`);
   }
   // The surviving generator may not itself be snapped away.
   await page.evaluate('window.lattice.setA(0.01, 0)');
@@ -213,6 +234,7 @@ const dist = (p, q) => Math.max(Math.abs(p[0] - q[0]), Math.abs(p[1] - q[1]), Ma
 
   // ---- the animated subgroup direction t·(m·a + n·b) ----
   await page.evaluate('window.lattice.setFlow(2, -1)');
+  await page.evaluate(() => draw());   // the readouts are written by draw()
   {
     const st = await page.evaluate('JSON.parse(JSON.stringify(window.lattice.state))');
     check('flow coefficient m', st.flowM, 2);
@@ -224,6 +246,7 @@ const dist = (p, q) => Math.max(Math.abs(p[0] - q[0]), Math.abs(p[1] - q[1]), Ma
       /2a\s*−\s*b/.test(await page.evaluate("document.getElementById('flowReadout').textContent")));
   }
   await page.evaluate('window.lattice.setFlow(9, -9)');   // out of range: clamped
+  await page.evaluate(() => draw());
   {
     const st = await page.evaluate('JSON.parse(JSON.stringify(window.lattice.state))');
     check('flow coefficients are clamped (m)', st.flowM, 2);
