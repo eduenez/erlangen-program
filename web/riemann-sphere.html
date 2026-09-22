@@ -147,7 +147,7 @@
         projecting line follow.</li>
     <li>Drag empty space to orbit the sphere, and scroll to zoom. The sphere is
         translucent, so <i>P</i> stays visible on the far side.</li>
-    <li>Push <i>z</i> far out and watch <i>P</i> creep toward the pole marked
+    <li>Push <i>z</i> far out and watch <i>P</i> approach the pole marked
         &infin;.</li>
     <li>Tick “a figure at <i>z</i>” to carry the pennant flag of the other lessons
         along, and watch what the projection does to it. Its image is largest
@@ -186,28 +186,30 @@
   <p><b>Where the poles go.</b> Drag <code>z</code> toward the origin and
      <code>P</code> climbs to the pole marked <code>0</code>; push <code>z</code> far
      away in any direction and <code>P</code> settles toward the pole marked
-     <code>&infin;</code>, from whichever side it approached. Every direction of escape
-     in the plane arrives at the <i>same</i> point of the sphere: the plane has many
-     ways to run off to infinity, and the sphere collapses them all into one point.
-     That single added point is what makes the sphere <i>compact</i> &mdash; and what
-     makes it the natural home of the plane.</p>
+     <code>&infin;</code>, from whichever side it approached. An unbounded sequence in
+     the plane approaches no point of the plane at all; its images on the sphere,
+     however, converge to the pole marked <code>&infin;</code>, and they do so whatever
+     direction the sequence escaped along. One point of the sphere therefore serves for
+     every such sequence, and that single added point is what makes the sphere
+     <i>compact</i> &mdash; and what makes it the natural home of the plane.</p>
   <p><b>The equator is not drawn.</b> Look where the sphere meets the plane. No
      equator has been drawn anywhere: the curve you see is simply the plane's own unit
      circle, which is where the two surfaces cross. And the unit circle is exactly the
-     set that the projection leaves alone &mdash; put <code>z</code> on it and
-     <code>P</code> lands on top of <code>z</code>, for either choice of pole.</p>
+     set the projection fixes pointwise &mdash; put <code>z</code> on it and
+     <code>P</code> lands on <code>z</code> itself, for either choice of pole.</p>
   <p><b>Angles survive; areas do not.</b> The projection is <i>conformal</i>: it
      preserves angles everywhere. Switch on the figure and drag it about &mdash; its
-     corners keep their angles wherever it goes, while its size does not: the local
-     magnification is <code>&lambda; = 2/(1 + |z|&sup2;)</code>, reported in the panel.
-     It is largest at the origin and dies away toward infinity, so the neighbourhood of
-     the pole marked <code>&infin;</code> is smeared over the whole far reach of the
-     plane.</p>
+     corners keep their angles wherever it goes, though its size does not keep its own:
+     the local magnification is <code>&lambda; = 2/(1 + |z|&sup2;)</code>, reported in the
+     panel. It is largest at the origin and falls to zero as <code>|z|</code> grows, so
+     an arbitrarily small neighbourhood of the pole marked <code>&infin;</code> is spread
+     over the unbounded far reach of the plane.</p>
   <p><b>Which pole to project from.</b> That last fact settles a cartographic
      question. Whichever pole we project from is the one whose neighbourhood gets
      stretched beyond recognition, so we project from the pole we care least about. For
      a map of the Earth that is the south pole, and this lesson projects from the south
-     by default; the Antarctic is what gets banished to the edge. There is a second
+     by default; the Antarctic is then the region carried out beyond the edge of any map
+     one is willing to print. There is a second
      reason, harder to see and just as real: projected from the south, a figure and its
      image on the sphere have the <i>same</i> handedness &mdash; switch the pole to the
      north and watch the flag's pennant change sides.</p>
@@ -234,10 +236,10 @@ const Z_MAX      = 40;      // clamp on |z| while dragging (Sec. 5.1)
 // Sec. 3.6: the scene.  The sphere is the unit sphere; the plane is Z = 0.
 const SPHERE_ALPHA      = 0.30;   // opacity of the near wall
 const SPHERE_ALPHA_FAR  = 0.20;   // the far wall, dimmed as a depth cue
-const PLANE_ALPHA       = 0.34;
+const PLANE_ALPHA       = 0.40;
 const PLANE_FULL = 3.2, PLANE_FADE = 11.0;   // the plane fades away between these radii
-const RAY_RADIUS  = 0.018;   // the projecting capsule
-const MARK_RADIUS = 0.055;   // the two markers
+const RAY_RADIUS  = 0.009;   // the projecting capsule
+const MARK_RADIUS = 0.038;   // the two markers
 
 // Sec. 3.7: decoration.
 // Decoration is layered, lightest first, so that each class can be weighted
@@ -258,13 +260,20 @@ const FLAG_SCALE  = 0.60;
 const FLAG_STROKE = 0.075;   // in template units
 
 // Colors, and the opacity each decoration class reaches where it is solid.
+// Each surface carries a subtle hue of its own — the sphere cool, the plane
+// warm — and its decoration is tinted to match, so that a line belongs
+// visibly to the surface it lies on.  Each marked point is then drawn in its
+// own surface's hue at full strength: z belongs to the plane and P to the
+// sphere, and their colors say so without a legend.
 const BG_LOW = [0.855, 0.870, 0.900], BG_HIGH = [0.940, 0.955, 0.980];
-const SPHERE_COL = [0.42, 0.60, 0.78];
-const PLANE_COL  = [0.87, 0.855, 0.80];
-const GRID_COL = [0.34, 0.39, 0.45], GRID_ALPHA = 0.40;
-const AXIS_COL = [0.10, 0.12, 0.18], AXIS_ALPHA = 0.78;
-const EQ_COL   = [0.02, 0.40, 0.36], EQ_ALPHA   = 0.96;   // the unit circle = the equator
-const GRAT_COL = [0.09, 0.15, 0.26], GRAT_ALPHA = 0.54;
+const SPHERE_COL = [0.40, 0.55, 0.80];   // a cool blue
+const PLANE_COL  = [0.93, 0.79, 0.52];   // a warm sand.  The hue has to be
+                                         // laid on this strongly to survive the
+                                         // surface's own translucency.
+const GRID_COL = [0.44, 0.39, 0.30], GRID_ALPHA = 0.38;   // the plane's own, warm
+const AXIS_COL = [0.16, 0.13, 0.08], AXIS_ALPHA = 0.76;
+const EQ_COL   = [0.01, 0.37, 0.29], EQ_ALPHA   = 0.96;   // the unit circle = the equator
+const GRAT_COL = [0.08, 0.14, 0.27], GRAT_ALPHA = 0.54;   // the sphere's own, cool
 const FLAG_COL = [1.00, 1.00, 1.00], FLAG_ALPHA = 0.96;
 // White alone is invisible against the pale plane (0.20 of channel contrast),
 // so the figure is drawn as the other lessons' white flag with a dark border,
@@ -272,8 +281,10 @@ const FLAG_COL = [1.00, 1.00, 1.00], FLAG_ALPHA = 0.96;
 const FLAG_EDGE_COL = [0.10, 0.10, 0.16];
 const FLAG_EDGE_PX  = 1.2;   // small enough that a shrunken image is not all border
 const RAY_COL    = [0.78, 0.00, 0.46];   // the projecting line
-const MARK_Z_COL = [0.07, 0.08, 0.12];   // the plane point z, dark against a light plane
-const MARK_P_COL = [0.92, 0.69, 0.04];   // its image P
+const MARK_Z_COL = [0.55, 0.26, 0.00];   // z: the plane's hue, heavier
+const MARK_P_COL = [0.01, 0.06, 0.34];   // P: the sphere's hue, heavier.  It must
+                                         // survive being seen through the near
+                                         // wall when it lands on the far side.
 const LIGHT_DIR  = [0.4208, -0.6211, 0.6612];   // a unit vector
 
 // Sec. 5.1: the camera.
@@ -287,6 +298,7 @@ const HIT_PX       = 16;                   // pointer radius for grabbing z
 // Typography of the overlay, matching the other two lessons.
 const LABEL_FONT = 'bold italic 26px system-ui, sans-serif';
 const LABEL_DARK = { fill: '#111', halo: 'rgba(255,255,255,0.95)' };
+const LABEL_GAP_PX = 15;     // clearance between a pole and its label
 const LABEL_LIGHT = { fill: '#fff', halo: 'rgba(15,15,25,0.78)' };
 
 /* ================================================================
@@ -688,15 +700,24 @@ const overlay = document.getElementById('overlay');
 const ctx = overlay.getContext('2d');
 let W = 0, H = 0, DPR = 1;
 
-function drawLabel(txt, x, y, scheme) {
+// `place` is 'above', 'below', or the northeast corner the other lessons use.
+// A pole lettered off to one side reads as belonging to nothing in particular,
+// so the two poles are lettered directly over and under themselves.
+function drawLabel(txt, x, y, scheme, place) {
   ctx.save();
   ctx.font = LABEL_FONT;
   ctx.lineJoin = 'round';
   ctx.lineWidth = 5;
   ctx.strokeStyle = scheme.halo;
-  ctx.strokeText(txt, x + 10, y - 10);
   ctx.fillStyle = scheme.fill;
-  ctx.fillText(txt, x + 10, y - 10);
+  let lx = x + 10, ly = y - 10;
+  if (place === 'above' || place === 'below') {
+    ctx.textAlign = 'center';
+    lx = x;
+    ly = (place === 'above') ? y - LABEL_GAP_PX : y + LABEL_GAP_PX + 20;
+  }
+  ctx.strokeText(txt, lx, ly);
+  ctx.fillText(txt, lx, ly);
   ctx.restore();
 }
 
@@ -724,17 +745,20 @@ function draw() {
 
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.clearRect(0, 0, W, H);
-  // The pole projected from answers to z = infinity; the opposite pole to
-  // z = 0 (Sec. 3.1).  Lettering them so says the whole correspondence.
-  const marks = [
-    [dv.pole,                    '∞', LABEL_DARK],
-    [[0, 0, -state.sigma],       '0',      LABEL_DARK],
-    [dv.planePt,                 'z',      LABEL_DARK],
-    [dv.P,                       'P',      LABEL_DARK],
-  ];
-  for (const [p, txt, sch] of marks) {
-    const q = project(cam, p);
-    if (q) drawLabel(txt, q.x, q.y, sch);
+  // The pole projected from answers to z = infinity, the opposite pole to
+  // z = 0 (Sec. 3.1); lettering them so states the whole correspondence.  The
+  // two are lettered directly above and below themselves, and which of them is
+  // uppermost is read off the projection, so the placement stays right however
+  // the camera is turned — including from beneath the plane.
+  const qN = project(cam, [0, 0, 1]), qS = project(cam, [0, 0, -1]);
+  const northTxt = (state.sigma > 0) ? '∞' : '0';
+  const southTxt = (state.sigma > 0) ? '0' : '∞';
+  const northOnTop = !(qN && qS) || qN.y <= qS.y;
+  if (qN) drawLabel(northTxt, qN.x, qN.y, LABEL_DARK, northOnTop ? 'above' : 'below');
+  if (qS) drawLabel(southTxt, qS.x, qS.y, LABEL_DARK, northOnTop ? 'below' : 'above');
+  for (const [pt, txt] of [[dv.planePt, 'z'], [dv.P, 'P']]) {
+    const q = project(cam, pt);
+    if (q) drawLabel(txt, q.x, q.y, LABEL_DARK, 'ne');
   }
 
   const z = state.z;
