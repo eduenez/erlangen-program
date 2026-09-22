@@ -143,8 +143,9 @@
       the plane with a single point at infinity added &mdash; the
       <i>Riemann sphere</i>.</h2>
   <ul class="instructions verbose">
-    <li>Drag the white point <i>z</i> across the plane; its image <i>P</i> and the
-        projecting line follow.</li>
+    <li>Drag the amber point <i>z</i> across the plane &mdash; it carries the plane's
+        own hue, as its image <i>P</i> carries the sphere's; the projecting line
+        follows both.</li>
     <li>Drag empty space to orbit the sphere, and scroll to zoom. The sphere is
         translucent, so <i>P</i> stays visible on the far side.</li>
     <li>Push <i>z</i> far out and watch <i>P</i> approach the pole marked
@@ -229,8 +230,11 @@
 // the default, for the two independent reasons of Sec. 3.4 (distortion) and
 // Sec. 3.5 (orientation); sigma = +1 projects from the north.
 const SIGMA_INIT = -1;
-const Z_INIT     = { re: 1.55, im: 0.85 };   // outside the unit circle, so that
-                                             // z and its image P read apart
+// Outside the unit circle, so that z and its image P read apart and P falls
+// between the pole and z.  The modulus and argument, like the opening camera
+// below, were settled by measuring in a browser: both marked points must stand
+// clear of the two panels at every common window size, projectors included.
+const Z_INIT     = { re: 1.70 * Math.cos(0.50), im: 1.70 * Math.sin(0.50) };
 const Z_MAX      = 40;      // clamp on |z| while dragging (Sec. 5.1)
 
 // Sec. 3.6: the scene.  The sphere is the unit sphere; the plane is Z = 0.
@@ -289,11 +293,19 @@ const LIGHT_DIR  = [0.4208, -0.6211, 0.6612];   // a unit vector
 
 // Sec. 5.1: the camera.
 const FOV          = 0.85;   // vertical field of view, radians
-const CAM_INIT     = { az: -1.02, el: 0.40, dist: 4.3 };
+// The opening camera is chosen so that z and P both fall in the band of canvas
+// left clear between the control panel and the mini-lesson, and so that z
+// stands clear of the sphere's silhouette with the projecting ray foreshortened
+// by neither.  Measured in a browser rather than guessed: the previous opening
+// hid z behind the mini-lesson at every ordinary laptop size.
+const CAM_INIT     = { az: -0.08, el: 0.40, dist: 5.8 };
 const CAM_DIST_MIN = 1.35, CAM_DIST_MAX = 26;
 const EL_CLAMP     = Math.PI / 2 - 0.04;   // keep the up-vector well defined
 const ORBIT_SPEED  = 0.0075;               // radians per pixel of drag
 const HIT_PX       = 16;                   // pointer radius for grabbing z
+const NOTES_MIN_WIDTH = 1150;              // narrower than this, the mini-lesson
+                                           // opens closed rather than covering
+                                           // most of the picture
 
 // Typography of the overlay, matching the other two lessons.
 const LABEL_FONT = 'bold italic 26px system-ui, sans-serif';
@@ -941,9 +953,13 @@ window.sphere = {
 };
 
 refreshPoleButtons();
+// A narrow or short window — a phone held upright, typically — opens with the
+// prose collapsed, so that the picture is visible at all.  The mini-lesson is a
+// further 350px laid over the canvas, so it opens only where there is room for
+// it beside the controls (Sec. 5.1's phone rule, refined by measurement).
 const SMALL_SCREEN = window.innerWidth < 720 || window.innerHeight < 620;
 setPanel(SMALL_SCREEN ? 'compact' : 'full');
-setNotes(!SMALL_SCREEN);
+setNotes(!SMALL_SCREEN && window.innerWidth >= NOTES_MIN_WIDTH);
 resize();
 window.__ready = true;
 </script>
