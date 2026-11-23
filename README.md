@@ -89,12 +89,16 @@ property the lessons rest on: points of a common orbit must receive the
 
 ## Algebra and geometry exhibits
 
-`web/algebra-geometry/` is the canonical home of six reusable exhibits:
+`web/algebra-geometry/` is the canonical home of seven reusable exhibits:
 
 - `intersections.html`: circle/line intersections, tangency, nonreal roots,
   and the projective intersection of parallel affine lines.
-- `bezout.html`: line/cubic, two ellipses, two circles, and a vertical line
-  with a parabola; real, nonreal and infinite intersections always total the
+- `projective-plane.html`: the real projective plane as lines through the
+  centre of a hemisphere, projected centrally (gnomonically) onto the tangent
+  plane; points at infinity as antipodal pairs on the rim, and parallel lines
+  as great semicircles meeting there.
+- `bezout.html`: line/cubic, two ellipses, an ellipse and a cubic, two circles,
+  and a vertical line with a parabola; real, nonreal and infinite intersections always total the
   product of the degrees.
 - `desargues.html`: perspective triangles in two spatial planes and the same
   configuration after central projection; in the planar view the vertices can

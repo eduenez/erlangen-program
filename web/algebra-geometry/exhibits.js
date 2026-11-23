@@ -223,6 +223,8 @@
     return z;
   }
   function bezout(){
+    // Ellipse x²/a² + y²/b² = s² against y = x³ − 3x: in u = x², u³ − 6u² + (9 + b²/a²)u = b²s².
+    const CC={a:2.4,b:.9};CC.k=9+CC.b*CC.b/(CC.a*CC.a);{const u=(12+Math.sqrt(144-12*CC.k))/6;CC.tangent=Math.sqrt(u*u*u-6*u*u+CC.k*u)/CC.b}
     const modes={
       cubic:{label:'Line height c',min:-1.8,max:1.8,start:.3,special:2*Math.pow(1.4/3,1.5),specialLabel:'Show tangency',degrees:[1,3],names:'the line y = 0.4x + c and the cubic y = x³ − x',
         text:'Substituting the line into the cubic gives x³ − 1.4x − c = 0: always three roots over ℂ, counted with multiplicity. As the line rises, two real intersections merge into one tangent point and then separate into a conjugate pair of nonreal points.'},
@@ -230,6 +232,8 @@
         text:'Eliminating y² leaves a quadratic in x, and each root x has two values of y: four intersections in all. At p = ±1 the ellipses touch at a point where y = 0 and the two values of y coincide: that point counts twice. When the ellipses separate, all four points are still there, with nonreal coordinates.'},
       circles:{label:'Half-distance p between centres',min:.2,max:1.8,start:.6,special:1,specialLabel:'Show tangency',degrees:[2,2],names:'the unit circles centred at (−p, 0) and (p, 0)',
         text:'Two circles are conics, yet they never meet in more than two points of the plane. Homogenize: every circle X² + Y² + (lower terms)·Z = 0 contains the two points [1 : i : 0] and [1 : −i : 0] at infinity. Those two are always shared, so only two intersections are left for the affine plane.'},
+      conicCubic:{label:'Size s of the ellipse',min:.3,max:2.6,start:1,special:CC.tangent,specialLabel:'Show tangency',degrees:[2,3],names:'the ellipse x²/a² + y²/b² = s² (a = 2.4, b = 0.9) and the cubic y = x³ − 3x',
+        text:'Substituting the cubic into the ellipse gives a polynomial of degree six in x: six intersections, all in the affine plane. For a wide range of sizes all six are real. Shrink the ellipse and two pairs merge into tangent points, each counted twice, then leave the real plane as conjugate pairs; the count stays 2 · 3 = 6. Neither curve loses a point at infinity here: the cubic meets the line at infinity only at [0 : 1 : 0], which is not on the ellipse.'},
       parabola:{label:'Position c of the vertical line',min:-1.8,max:1.8,start:.8,special:0,specialLabel:'Line through the vertex',degrees:[1,2],names:'the vertical line x = c and the parabola y = x²',
         text:'A vertical line meets the parabola in one point, not two. Homogenize: Y Z = X² and X = c Z. Besides [c : c² : 1] they share the point [0 : 1 : 0] at infinity — the direction in which the parabola opens. Vertical lines are exactly the lines through that point.'}};
     const state={mode:'cubic',parameter:.3};
@@ -238,6 +242,7 @@
       const v=state.parameter,mode=state.mode;let raw=[],infinity=[];
       if(mode==='cubic')raw=polyRoots([1,0,-1.4,-v]).map(x=>({x,y:cadd(cmul([.4,0],x),[v,0])}));
       else if(mode==='conics'){const a=15/16,b=-2*v,c=v*v-.75,s=csqrt([b*b-4*a*c,0]);for(const sign of [1,-1]){const x=cdiv(cadd([-b,0],cmul([sign,0],s)),[2*a,0]),y=csqrt(csub([1,0],cmul([.25,0],cmul(x,x))));raw.push({x,y},{x,y:cmul([-1,0],y)})}}
+      else if(mode==='conicCubic')raw=polyRoots([1,0,-6,0,CC.k,0,-CC.b*CC.b*v*v]).map(x=>({x,y:csub(cmul(x,cmul(x,x)),cmul([3,0],x))}));
       else if(mode==='circles'){const y=csqrt([1-v*v,0]);raw=[{x:[0,0],y},{x:[0,0],y:cmul([-1,0],y)}];infinity=['[1 : i : 0]','[1 : −i : 0]']}
       else{raw=[{x:[v,0],y:[v*v,0]}];infinity=['[0 : 1 : 0]']}
       const points=[];for(const p of raw){const q=points.find(q=>Math.hypot(q.x[0]-p.x[0],q.x[1]-p.x[1],q.y[0]-p.y[0],q.y[1]-p.y[1])<2e-3);if(q)q.multiplicity++;else points.push({...p,multiplicity:1})}
@@ -249,6 +254,7 @@
       const ellipse=(cx,rx,ry)=>circle().map(([x,y])=>[cx+rx*x,ry*y]),xs=Array.from({length:241},(_,i)=>-3+i/40);
       if(mode==='cubic'){a.line(xs.map(x=>[x,x**3-x]).filter(p=>Math.abs(p[1])<3),C.teal,3);a.line([[-3,-1.2+v],[3,1.2+v]],C.wine,2.5)}
       else if(mode==='conics'){a.line(ellipse(0,2,1),C.teal,3);a.line(ellipse(v,1,2),C.wine,3)}
+      else if(mode==='conicCubic'){a.line(xs.map(x=>[x,x**3-3*x]).filter(p=>Math.abs(p[1])<3),C.teal,3);a.line(ellipse(0,CC.a*v,CC.b*v),C.wine,3)}
       else if(mode==='circles'){a.line(ellipse(-v,1,1),C.teal,3);a.line(ellipse(v,1,1),C.wine,3)}
       else{a.line(xs.map(x=>[x,x*x]).filter(p=>p[1]<3),C.teal,3);a.line([[v,-2.6],[v,2.6]],C.wine,2.5)}
       for(const p of data.points){const real=isReal(p),r=p.multiplicity>1?9:6;if(real)a.point([p.x[0],p.y[0]],C.ink,'circle',r);b.point(p.x,real?C.ink:C.gold,real?'circle':'square',r);if(p.multiplicity>1)b.text(`×${p.multiplicity}`,p.x,C.ink,[12,-10])}
@@ -291,7 +297,100 @@
     window.lesson={state,calculate,draw,set};observe(['left','right'],draw);
   }
 
+  function projective(){
+    // The real projective plane as lines through 0 in R³. Each line meets the upper unit
+    // hemisphere once and the plane z = 1 once (central, or gnomonic, projection), except
+    // the horizontal lines: those meet only the equator, in two opposite points.
+    const R=2.2,rad=d=>d*Math.PI/180,dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],unit=a=>mul(a,1/norm(a));
+    const start={mode:'point',theta:50,phi:25,slope:.6,azimuth:-18,elevation:24,sphere:false},state={...start};
+    const lines=()=>{const m=state.slope;return [{color:C.teal,q:[0,0],d:[1,0],normal:[0,1,0]},{color:C.wine,q:[0,1],d:unit([1,m,0]).slice(0,2),normal:[m,-1,1]}]};
+    function calculate(){
+      const t=rad(state.theta),f=rad(state.phi),m=state.slope;
+      const dir=unit(state.mode==='point'?[Math.sin(t)*Math.cos(f),Math.sin(t)*Math.sin(f),Math.cos(t)]:[1,0,-m]);
+      const horizontal=Math.abs(dir[2])<1e-9,hemi=horizontal||dir[2]>0?dir:mul(dir,-1);
+      const affine=horizontal?null:[dir[0]/dir[2],dir[1]/dir[2]];
+      // Great circles of the two lines y = 0 and y = mx + 1: unit vectors orthogonal to the normal of the plane through 0.
+      const arcs=lines().map(({normal})=>{const u=unit(cross(normal,[0,0,1]));let w=unit(cross(normal,u));if(w[2]<0)w=mul(w,-1);return {normal,u,w}});
+      return {dir,hemi,antipode:mul(hemi,-1),affine,horizontal,homogeneous:horizontal?[hemi[0],hemi[1],0]:[...affine,1],arcs};
+    }
+    // The part of the line q + t d inside the square |x|, |y| ≤ R.
+    function clip(q,d){let lo=-1e9,hi=1e9;for(const i of [0,1]){if(Math.abs(d[i])<1e-12){if(Math.abs(q[i])>R)return null;continue}const a=(-R-q[i])/d[i],b=(R-q[i])/d[i];lo=Math.max(lo,Math.min(a,b));hi=Math.min(hi,Math.max(a,b))}return lo<hi?[[q[0]+lo*d[0],q[1]+lo*d[1]],[q[0]+hi*d[0],q[1]+hi*d[1]]]:null}
+    let plane=null;
+    function draw(){
+      const data=calculate(),{ctx,width,height}=context(el('scene')),az=rad(state.azimuth),e=rad(state.elevation);
+      const right=[Math.cos(az),Math.sin(az),0],fwd=[-Math.sin(az),Math.cos(az),0],view=[-fwd[0]*Math.cos(e),-fwd[1]*Math.cos(e),Math.sin(e)];
+      const scale=Math.min((width-24)/5.9,(height-24)/(state.sphere?3.9:3.3)),cy=state.sphere?.2:.52;
+      const px=p=>[width/2+dot(p,right)*scale,height/2-(p[2]*Math.cos(e)+dot(p,fwd)*Math.sin(e)-cy)*scale];
+      const path=(points,color,lw=2,dash=false,alpha=1)=>{ctx.beginPath();points.forEach((p,i)=>{const q=px(p);i?ctx.lineTo(...q):ctx.moveTo(...q)});ctx.globalAlpha=alpha;ctx.strokeStyle=color;ctx.lineWidth=lw;ctx.setLineDash(dash?[4,5]:[]);ctx.stroke();ctx.setLineDash([]);ctx.globalAlpha=1};
+      // A curve on the sphere: solid where it faces the viewer, dashed where the sphere hides it.
+      const onSphere=(points,color,lw)=>{let run=[],front=null;const flush=()=>{if(run.length>1)path(run,color,front?lw:Math.max(1,lw-1),!front,front?1:.6)};for(const p of points){const f=dot(p,view)>=0;if(front!==null&&f!==front){run.push(p);flush();run=[]}front=f;run.push(p)}flush()};
+      const dotAt=(p,color,r=5,hollow=false)=>{const q=px(p);ctx.beginPath();ctx.arc(...q,r,0,2*Math.PI);if(hollow){ctx.fillStyle='white';ctx.fill();ctx.strokeStyle=color;ctx.lineWidth=2;ctx.stroke()}else{ctx.fillStyle=color;ctx.fill()}};
+      const label=(s,p,color,offset)=>{const q=px(p);ctx.fillStyle=color;ctx.fillText(s,q[0]+offset[0],q[1]+offset[1])};
+      const ring=(z,count=120)=>{const r=Math.sqrt(1-z*z);return Array.from({length:count+1},(_,i)=>{const a=2*Math.PI*i/count;return [r*Math.cos(a),r*Math.sin(a),z]})};
+      // Silhouette: the unit circle on screen; for the hemisphere, its upper half closed by the near half of the equator.
+      const centre=px([0,0,0]);ctx.beginPath();
+      if(state.sphere)ctx.arc(...centre,scale,0,2*Math.PI);
+      else{ctx.arc(...centre,scale,Math.PI,2*Math.PI);ctx.ellipse(...centre,scale,scale*Math.sin(e),0,0,Math.PI)}
+      ctx.fillStyle='rgba(0,110,112,.07)';ctx.fill();
+      ctx.beginPath();ctx.arc(...centre,scale,state.sphere?0:Math.PI,2*Math.PI);ctx.strokeStyle='#9ba8b2';ctx.lineWidth=1.2;ctx.stroke();
+      for(const z of state.sphere?[-.8,-.45,.45,.8]:[.45,.8])onSphere(ring(z),C.grid,1.2);
+      onSphere(ring(0),C.gold,3);
+      const arc=({u,w})=>Array.from({length:121},(_,i)=>{const a=(state.sphere?2:1)*Math.PI*i/120;return add(mul(u,Math.cos(a)),mul(w,Math.sin(a)))});
+      if(state.mode==='lines')data.arcs.forEach((g,i)=>onSphere(arc(g),lines()[i].color,3));
+      // The line through 0.
+      const inside=data.affine&&Math.abs(data.affine[0])<=R&&Math.abs(data.affine[1])<=R,P=data.affine?[...data.affine,1]:null;
+      if(data.horizontal)path([mul(data.hemi,-3.1),mul(data.hemi,3.1)],C.gold,2.2);
+      else{path([mul(data.hemi,-(state.sphere?1.25:.5)),[0,0,0]],C.ink,1.2,true,.7);path([[0,0,0],inside?P:mul(data.hemi,3.2)],C.ink,1.8)}
+      // The affine plane z = 1, drawn translucent over the hemisphere.
+      const corners=[[-R,-R,1],[R,-R,1],[R,R,1],[-R,R,1]];
+      ctx.beginPath();corners.forEach((p,i)=>{const q=px(p);i?ctx.lineTo(...q):ctx.moveTo(...q)});ctx.closePath();ctx.fillStyle='rgba(0,110,112,.10)';ctx.fill();ctx.strokeStyle='#87b3b5';ctx.lineWidth=1;ctx.stroke();
+      path([[-R,0,1],[R,0,1]],state.mode==='lines'?C.teal:C.grid,state.mode==='lines'?3:1);path([[0,-R,1],[0,R,1]],C.grid,1);
+      if(state.mode==='lines'){const seg=clip(lines()[1].q,lines()[1].d);if(seg)path(seg.map(p=>[...p,1]),C.wine,3)}
+      ctx.font='15px system-ui';dotAt([0,0,0],C.ink,4);label('0',[0,0,0],C.ink,[-16,16]);
+      label('z = 1',[R,R,1],C.teal,[-52,-8]);label('equator: z = 0',[0,0,0],C.gold,[-48,(state.sphere?scale:scale*Math.sin(e))+20]);
+      if(inside){dotAt(P,C.ink,6);label('P',P,C.ink,[9,-9])}
+      if(data.horizontal){dotAt(data.hemi,C.gold,7);dotAt(data.antipode,C.gold,7);label('p',data.hemi,C.gold,[10,18]);label('−p',data.antipode,C.gold,[-28,18])}
+      else{dotAt(data.hemi,C.ink,6);label('p',data.hemi,C.ink,[-20,-6]);if(state.sphere){dotAt(data.antipode,C.ink,6,true);label('−p',data.antipode,C.ink,[9,18])}}
+      // The affine plane seen from above.
+      plane=chart(el('right'),[-R,R,-R,R],['x','y']);
+      if(state.mode==='lines'){plane.line([[-R,0],[R,0]],C.teal,3);const seg=clip(lines()[1].q,lines()[1].d);if(seg)plane.line(seg,C.wine,3)}
+      if(inside){plane.point(data.affine,state.mode==='lines'?C.gold:C.ink,7);plane.text('P',data.affine,C.ink,[10,-10])}
+      else{const h=[data.hemi[0],data.hemi[1]],len=Math.hypot(...h),s=data.affine&&dot([...data.affine,0],[h[0],h[1],0])<0?-1:1,v=mul(h,s/len);
+        const sides=data.horizontal?[1,-1]:[1];
+        for(const k of sides){const tip=mul(v,k*(R-.35)),tail=mul(v,k*(R-1.25)),nrm=[-v[1],v[0]];plane.line([tail,tip],C.gold,3);plane.line([add(tip,add(mul(v,-k*.22),mul(nrm,.14))),tip,add(tip,add(mul(v,-k*.22),mul(nrm,-.14)))],C.gold,3)}}
+      const h=data.homogeneous,hom=`[${n(h[0],2)} : ${n(h[1],2)} : ${n(h[2],0)}]`;
+      if(state.mode==='point'){el('aValue').textContent=`θ = ${n(state.theta,0)}°`;el('bValue').textContent=`φ = ${n(state.phi,0)}°`;
+        el('result').textContent=data.horizontal?`A horizontal line: it never reaches the plane z = 1. It meets the equator at p and −p, one point at infinity ${hom}.`:`The line meets the hemisphere at p and the plane at P = (${n(data.affine[0],2)}, ${n(data.affine[1],2)}) = ${hom}.`+(inside?'':' P is outside the picture, in the direction of the arrow.')}
+      else{el('aValue').textContent=`m = ${n(state.slope,2)}`;el('bValue').textContent='';
+        el('result').textContent=data.horizontal?'Parallel lines: no common point in the plane. Their semicircles meet at the two ends of a diameter of the equator: the single point at infinity [1 : 0 : 0].':`The lines y = 0 and y = ${n(state.slope,2)}x + 1 meet at P = (${n(data.affine[0],2)}, 0) = [1 : 0 : ${n(-state.slope,2)}].`+(inside?'':' P is outside the picture; on the hemisphere it is close to the equator.')}
+    }
+    function configure(){
+      const point=state.mode==='point';
+      Object.assign(el('a'),point?{min:0,max:180,step:1,value:state.theta}:{min:-1.5,max:1.5,step:.01,value:state.slope});
+      el('b').value=state.phi;el('b').disabled=!point;
+      el('aLabel').textContent=point?'Tilt θ of the line from the vertical':'Slope m of the second line';
+      el('special').textContent=point?'Tip the line to horizontal':'Make the lines parallel';
+      el('rightCaption').textContent=point?'Drag P. Tilting the line past the horizontal brings P back from the opposite side.':'The teal line is y = 0, the rose line y = mx + 1. As m passes through 0 their meeting point leaves on one side and returns on the other.';
+      el('explanation').textContent=point?'A point of the projective plane is a line through 0. If the line is not horizontal it pierces the upper hemisphere in exactly one point p and the plane z = 1 in exactly one point P, so the open hemisphere is a copy of the whole affine plane, however far P goes. A horizontal line pierces neither; it meets the hemisphere only on its rim, in two opposite points. Those two are one projective point, a point at infinity. Gluing each rim point to its opposite turns the hemisphere into the projective plane. Equivalently, take the whole sphere and identify every p with −p.':'A line of the plane z = 1, together with 0, spans a plane; that plane cuts the hemisphere in half a great circle. Two lines of the affine plane give two such semicircles, and two great circles always cross at a pair of opposite points. If the lines are not parallel, one of the pair is on the upper hemisphere and projects to their meeting point. If they are parallel, the pair lies on the equator: the lines meet at infinity, in the direction they share.';
+      draw();
+    }
+    function set(values){Object.assign(state,values);for(const id of ['azimuth','elevation'])el(id).value=state[id];el('mode').value=state.mode;el('sphere').checked=state.sphere;configure()}
+    el('mode').addEventListener('change',()=>set({mode:el('mode').value}));
+    el('a').addEventListener('input',()=>{state[state.mode==='point'?'theta':'slope']=+el('a').value;draw()});
+    el('b').addEventListener('input',()=>{state.phi=+el('b').value;draw()});
+    for(const id of ['azimuth','elevation'])el(id).addEventListener('input',()=>{state[id]=+el(id).value;draw()});
+    el('sphere').addEventListener('change',()=>{state.sphere=el('sphere').checked;draw()});
+    el('special').addEventListener('click',()=>set(state.mode==='point'?{theta:90}:{slope:0}));
+    el('reset').addEventListener('click',()=>set({...start,mode:state.mode}));
+    let orbit=null;
+    el('scene').addEventListener('pointerdown',e=>{el('scene').setPointerCapture(e.pointerId);orbit=[e.clientX,e.clientY,state.azimuth,state.elevation]});
+    el('scene').addEventListener('pointermove',e=>{if(!orbit)return;state.azimuth=((orbit[2]+(e.clientX-orbit[0])*.4+540)%360)-180;state.elevation=Math.max(5,Math.min(80,orbit[3]+(e.clientY-orbit[1])*.25));el('azimuth').value=state.azimuth;el('elevation').value=state.elevation;draw()});
+    for(const event of ['pointerup','pointercancel'])el('scene').addEventListener(event,()=>orbit=null);
+    grabber(el('right'),()=>{const d=calculate();return state.mode==='point'&&d.affine?{P:d.affine}:{}},q=>plane.inv(q),(key,w)=>{const r=Math.hypot(w[0],w[1]);set({theta:Math.round(Math.atan(r)*180/Math.PI),phi:r<1e-9?state.phi:Math.round(Math.atan2(w[1],w[0])*180/Math.PI)})});
+    window.lesson={state,calculate,draw,set};observe(['scene','right'],configure);
+  }
+
   const demo=document.body.dataset.demo;
-  const demos={intersections,desargues,branching,arithmetic,bezout,exponential};
+  const demos={intersections,desargues,branching,arithmetic,bezout,exponential,projective};
   if(demos[demo])demos[demo]();
 })();
