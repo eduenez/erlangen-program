@@ -10,6 +10,13 @@ const out=path.resolve(process.env.QA_DIR||require('node:os').tmpdir()+'/erlange
   page.on('pageerror',e=>errors.push(String(e)));
   const open=async name=>{await page.goto(pathToFileURL(path.join(__dirname,'../web/algebra-geometry',name+'.html')).href);await page.waitForFunction(()=>window.lesson)};
   const set=async(id,v)=>page.locator('#'+id).evaluate((e,v)=>{e.value=v;e.dispatchEvent(new Event('input',{bubbles:true}))},v);
+  // The landing page (the talks' QR target) links both decks and both handouts.
+  await page.goto(pathToFileURL(path.join(__dirname,'../web/algebra-geometry/index.html')).href);
+  assert.equal(await page.locator('.talks a[href$=".pdf"]').count(),6);
+  for(const f of ['geometry-and-algebra-slides','geometry-and-algebra-handout','functions-and-transcendence-slides','functions-and-transcendence-handout'])
+   assert.ok(await page.locator(`.talks a[href$="/${f}.pdf"]`).count()>=1,f);
+  assert.equal(await page.locator('.links:not(.talks) > section > a').count(),6);
+  await page.screenshot({path:path.join(out,'index.png'),fullPage:true});
   await open('intersections');
   await set('parameter',0);assert.equal(await page.evaluate(()=>lesson.calculate().realCount),2);
   await page.locator('#special').click();assert.equal(await page.evaluate(()=>lesson.calculate().realCount),1);
