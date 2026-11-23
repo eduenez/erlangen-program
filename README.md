@@ -89,13 +89,21 @@ property the lessons rest on: points of a common orbit must receive the
 
 ## Algebra and geometry exhibits
 
-`web/algebra-geometry/` is the canonical home of three reusable exhibits:
+`web/algebra-geometry/` is the canonical home of six reusable exhibits:
 
 - `intersections.html`: circle/line intersections, tangency, nonreal roots,
   and the projective intersection of parallel affine lines.
+- `bezout.html`: line/cubic, two ellipses, two circles, and a vertical line
+  with a parabola; real, nonreal and infinite intersections always total the
+  product of the degrees.
 - `desargues.html`: perspective triangles in two spatial planes and the same
-  configuration after central projection.
+  configuration after central projection; in the planar view the vertices can
+  be dragged.
+- `arithmetic.html`: sum and product of points of a line by parallels, and
+  commutativity as Pappus's theorem.
 - `branching.html`: continuous square-root tracking around a branch value.
+- `exponential.html`: the map `z -> e^z`, its period, and the infinite fibres
+  behind the proof that it is a transcendental function.
 
 Open `web/algebra-geometry/index.html` directly from disk. This group shares its
 own local `style.css` and `exhibits.js`; all files stay together, and no network

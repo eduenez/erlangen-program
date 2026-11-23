@@ -27,7 +27,8 @@
     function point(a,color=C.teal,shape='circle',radius=6){const q=p(a);ctx.fillStyle=color;if(shape==='square')ctx.fillRect(q[0]-radius,q[1]-radius,2*radius,2*radius);else{ctx.beginPath();ctx.arc(...q,radius,0,2*Math.PI);ctx.fill()}}
     line([[xmin,0],[xmax,0]],C.grid,1);line([[0,ymin],[0,ymax]],C.grid,1);
     ctx.fillStyle=C.ink;ctx.font='14px system-ui';ctx.fillText(names[0],width-42,y0-9);ctx.fillText(names[1],x0+9,21);ctx.font='15px system-ui';
-    return {ctx,p,line,text,point,scale,width,height,bounds,x0,y0};
+    const inv=([px,py])=>[(px-x0)/scale,(y0-py)/scale];
+    return {ctx,p,inv,line,text,point,scale,width,height,bounds,x0,y0};
   }
   const circle=(r=1,start=0,end=2*Math.PI,count=160)=>Array.from({length:count+1},(_,i)=>{const t=start+(end-start)*i/count;return [r*Math.cos(t),r*Math.sin(t)]});
   function observe(ids,draw){const ro=new ResizeObserver(draw);ids.forEach(id=>ro.observe(el(id)));draw()}
@@ -75,28 +76,39 @@
   }
 
   function desargues(){
-    const O=[0,0,3],A=[[-1,-.8,0],[1,-.4,0],[.2,1,0]],B=A.map(a=>add(O,mul(sub(a,O),2.4/(3+.5*a[1]))));
-    const pairs=[[0,1],[0,2],[1,2]],I=pairs.map(([i,j])=>add(A[i],mul(sub(A[j],A[i]),(-1.2-A[i][1])/(A[j][1]-A[i][1]))));
-    const state={view:'space',azimuth:-62,elevation:22,axis:true};
+    // Π is z = 0 and Π′ is z = 0.6 + 0.5y, so Π ∩ Π′ is the fixed line y = −1.2, z = 0.
+    // A, B, C may be dragged in Π; A′, B′, C′ and the side intersections follow.
+    const O=[0,0,3],A0=[[-1,-.8,0],[1,-.4,0],[.2,1,0]],pairs=[[0,1],[0,2],[1,2]];
+    const state={view:'space',azimuth:-62,elevation:22,axis:true,A:A0.map(a=>[...a])};
     const S=[0,2,6],project=p=>add(S,mul(sub(p,S),6/(6-p[2]))).slice(0,2);
+    function compute(){
+      const A=state.A,B=A.map(a=>add(O,mul(sub(a,O),2.4/(3+.5*a[1]))));
+      const I=pairs.map(([i,j])=>add(A[i],mul(sub(A[j],A[i]),(-1.2-A[i][1])/(A[j][1]-A[i][1]))));
+      const sideErrors=I.map((p,k)=>{const[i,j]=pairs[k];return norm(cross(sub(p,B[i]),sub(B[j],B[i])))/(1+norm(p))});
+      return {A,B,I,sideErrors};
+    }
+    const planeBox=[-4.2,3.2,-2.7,1.9];let toWorld=null;
     function draw(){
-      const {ctx,width,height}=context(el('scene'));
-      const az=state.azimuth*Math.PI/180,elev=state.elevation*Math.PI/180;
-      const transform=p=>state.view==='plane'?project(p):[Math.cos(az)*p[0]+Math.sin(az)*p[1],-Math.sin(elev)*(-Math.sin(az)*p[0]+Math.cos(az)*p[1])+Math.cos(elev)*p[2]];
+      const {A,B,I}=compute(),{ctx,width,height}=context(el('scene'));
+      const az=state.azimuth*Math.PI/180,elev=state.elevation*Math.PI/180,flat=state.view==='plane';
+      const transform=p=>flat?project(p):[Math.cos(az)*p[0]+Math.sin(az)*p[1],-Math.sin(elev)*(-Math.sin(az)*p[0]+Math.cos(az)*p[1])+Math.cos(elev)*p[2]];
       const plane1=[[-3.3,-1.5,0],[1.8,-1.5,0],[1.8,1.3,0],[-3.3,1.3,0]],plane2=plane1.map(([x,y])=>[x,y,.6+.5*y]);
-      const all=[O,...A,...B,...I,...(state.view==='space'?[...plane1,...plane2]:[])].map(transform);
-      const xs=all.map(p=>p[0]),ys=all.map(p=>p[1]),xmin=Math.min(...xs),xmax=Math.max(...xs),ymin=Math.min(...ys),ymax=Math.max(...ys);
+      let xmin,xmax,ymin,ymax;
+      if(flat)[xmin,xmax,ymin,ymax]=planeBox;
+      else{const all=[O,...A0,...A0.map(a=>add(O,mul(sub(a,O),2.4/(3+.5*a[1])))),...plane1,...plane2].map(transform),xs=all.map(p=>p[0]),ys=all.map(p=>p[1]);xmin=Math.min(...xs);xmax=Math.max(...xs);ymin=Math.min(...ys);ymax=Math.max(...ys)}
       const scale=Math.min((width-70)/(xmax-xmin),(height-70)/(ymax-ymin));
       const pixel=p=>{const q=transform(p);return [width/2+(q[0]-(xmin+xmax)/2)*scale,height/2-(q[1]-(ymin+ymax)/2)*scale]};
-      const line=(points,color,lw=2,dash=false)=>{ctx.beginPath();points.forEach((p,i)=>{const q=pixel(p);i?ctx.lineTo(...q):ctx.moveTo(...q)});ctx.strokeStyle=color;ctx.lineWidth=lw;ctx.setLineDash(dash?[4,5]:[]);ctx.stroke();ctx.setLineDash([])};
+      toWorld=flat?([px,py])=>[(px-width/2)/scale+(xmin+xmax)/2,(height/2-py)/scale+(ymin+ymax)/2]:null;
+      const ok=p=>p.every(Number.isFinite)&&norm(p)<60;
+      const line=(points,color,lw=2,dash=false)=>{if(!points.every(ok))return;ctx.beginPath();points.forEach((p,i)=>{const q=pixel(p);i?ctx.lineTo(...q):ctx.moveTo(...q)});ctx.strokeStyle=color;ctx.lineWidth=lw;ctx.setLineDash(dash?[4,5]:[]);ctx.stroke();ctx.setLineDash([])};
       const labels=[];
-      const point=(p,label,color,offset=[9,-9])=>{const q=pixel(p);ctx.beginPath();ctx.arc(...q,5,0,2*Math.PI);ctx.fillStyle=color;ctx.fill();labels.push({q,label,color,offset})};
-      if(state.view==='space')for(const [pl,col]of [[plane1,'#87b3b5'],[plane2,'#d0a0ac']])line([...pl,pl[0]],col,1,true);
+      const point=(p,label,color,offset=[9,-9],r=5)=>{if(!ok(p))return;const q=pixel(p);ctx.beginPath();ctx.arc(...q,r,0,2*Math.PI);ctx.fillStyle=color;ctx.fill();labels.push({q,label,color,offset})};
+      if(!flat)for(const [pl,col]of [[plane1,'#87b3b5'],[plane2,'#d0a0ac']])line([...pl,pl[0]],col,1,true);
       for(let i=0;i<3;i++)line([O,A[i]],'#9ba8b2',1,true);
       for(let k=0;k<3;k++){const [i]=pairs[k];line([A[i],I[k]],'#7ba8aa',1);line([B[i],I[k]],'#ce95a4',1)}
       line([...A,A[0]],C.teal,3);line([...B,B[0]],C.wine,3);
-      if(state.axis){line([[-3.3,-1.2,0],[1.8,-1.2,0]],C.gold,2.5);I.forEach((p,i)=>point(p,['P','Q','R'][i],C.gold,[6,22]))}
-      A.forEach((p,i)=>point(p,['A','B','C'][i],C.teal,[-18,-12]));B.forEach((p,i)=>point(p,['A′','B′','C′'][i],C.wine,[9,20]));point(O,'O',C.ink);
+      if(state.axis){line([[-4.2,-1.2,0],[3.2,-1.2,0]],C.gold,2.5);I.forEach((p,i)=>point(p,['P','Q','R'][i],C.gold,[6,22]))}
+      A.forEach((p,i)=>point(p,['A','B','C'][i],C.teal,[-18,-12],flat?8:5));B.forEach((p,i)=>point(p,['A′','B′','C′'][i],C.wine,[9,20]));point(O,'O',C.ink);
       const occupied=[];ctx.font='16px system-ui';
       for(const {q,label,color,offset}of labels){
         const w=ctx.measureText(label).width,options=[offset,[10,-12],[10,23],[-w-10,-12],[-w-10,23],[12,-30],[-w-12,-30],[12,40],[-w-12,40]];
@@ -110,17 +122,25 @@
         if(Math.hypot(best.x-q[0],best.y-q[1])>24){ctx.beginPath();ctx.moveTo(...q);ctx.lineTo(best.x,best.y-5);ctx.strokeStyle=color;ctx.lineWidth=.7;ctx.stroke()}
         ctx.fillText(label,best.x,best.y);
       }
-      el('result').textContent=state.view==='space'?'All three side intersections lie on Π ∩ Π′: y = −1.2, z = 0.':'The same incidence configuration after central projection: P, Q, R remain collinear.';
+      el('result').textContent=flat?'Drag A, B, or C. The triangles change; P, Q, R stay on one line.':'All three side intersections lie on Π ∩ Π′: y = −1.2, z = 0. Drag to rotate.';
     }
     for(const id of ['azimuth','elevation'])el(id).addEventListener('input',()=>{state[id]=+el(id).value;draw()});
     el('view').addEventListener('change',()=>{state.view=el('view').value;el('azimuth').disabled=el('elevation').disabled=state.view==='plane';draw()});
     el('axis').addEventListener('change',()=>{state.axis=el('axis').checked;draw()});
-    el('reset').addEventListener('click',()=>{Object.assign(state,{view:'space',azimuth:-62,elevation:22,axis:true});el('view').value='space';for(const id of ['azimuth','elevation']){el(id).value=state[id];el(id).disabled=false}el('axis').checked=true;draw()});
-    let start=null;el('scene').addEventListener('pointerdown',e=>{if(state.view!=='space')return;start=[e.clientX,e.clientY,state.azimuth,state.elevation];el('scene').setPointerCapture(e.pointerId)});
-    el('scene').addEventListener('pointermove',e=>{if(!start)return;state.azimuth=((start[2]+(e.clientX-start[0])*.4+540)%360)-180;state.elevation=Math.max(5,Math.min(80,start[3]+(e.clientY-start[1])*.25));el('azimuth').value=state.azimuth;el('elevation').value=state.elevation;draw()});
-    for(const event of ['pointerup','pointercancel'])el('scene').addEventListener(event,()=>start=null);
-    const sideErrors=I.map((p,k)=>{const[i,j]=pairs[k];return norm(cross(sub(p,B[i]),sub(B[j],B[i])))});
-    window.lesson={state,O,A,B,I,project,sideErrors,draw};observe(['scene'],draw);
+    el('reset').addEventListener('click',()=>{Object.assign(state,{view:'space',azimuth:-62,elevation:22,axis:true,A:A0.map(a=>[...a])});el('view').value='space';for(const id of ['azimuth','elevation']){el(id).value=state[id];el(id).disabled=false}el('axis').checked=true;draw()});
+    function moveVertex(i,x,y){state.A[i]=[Math.max(-3.6,Math.min(2.8,x)),Math.max(-1.05,Math.min(1.7,y)),0];draw()}
+    let start=null,grab=-1;
+    const where=e=>{const r=el('scene').getBoundingClientRect();return [e.clientX-r.left,e.clientY-r.top]};
+    el('scene').addEventListener('pointerdown',e=>{
+      el('scene').setPointerCapture(e.pointerId);
+      if(state.view==='plane'){const w=toWorld(where(e));let d=.45;grab=-1;state.A.forEach((a,i)=>{const t=Math.hypot(a[0]-w[0],a[1]-w[1]);if(t<d){d=t;grab=i}});return}
+      start=[e.clientX,e.clientY,state.azimuth,state.elevation]});
+    el('scene').addEventListener('pointermove',e=>{
+      if(state.view==='plane'){if(grab>=0){const w=toWorld(where(e));moveVertex(grab,w[0],w[1])}return}
+      if(!start)return;state.azimuth=((start[2]+(e.clientX-start[0])*.4+540)%360)-180;state.elevation=Math.max(5,Math.min(80,start[3]+(e.clientY-start[1])*.25));el('azimuth').value=state.azimuth;el('elevation').value=state.elevation;draw()});
+    for(const event of ['pointerup','pointercancel'])el('scene').addEventListener(event,()=>{start=null;grab=-1});
+    window.lesson={state,O,project,compute,moveVertex,draw,get A(){return compute().A},get B(){return compute().B},get I(){return compute().I},get sideErrors(){return compute().sideErrors}};
+    observe(['scene'],draw);
   }
 
   function branching(){
@@ -141,6 +161,137 @@
     el('reset').addEventListener('click',()=>{Object.assign(state,{turns:0,radius:1});el('turns').value=0;el('radius').value=1;draw()});
     window.lesson={state,calculate,draw};observe(['base','roots'],draw);
   }
+  // Planar incidence in homogeneous coordinates: joins and meets are cross products.
+  const H=([x,y])=>[x,y,1],join=(a,b)=>cross(H(a),H(b)),meet=(l,m)=>{const p=cross(l,m);return [p[0]/p[2],p[1]/p[2]]};
+  const parallelThrough=(l,p)=>[l[0],l[1],-(l[0]*p[0]+l[1]*p[1])];
+  function grabber(canvas,targets,toWorld,move){
+    let grab=null;const where=e=>{const r=canvas.getBoundingClientRect();return toWorld([e.clientX-r.left,e.clientY-r.top])};
+    canvas.addEventListener('pointerdown',e=>{const w=where(e);let d=.4;grab=null;for(const [key,p]of Object.entries(targets())){const t=Math.hypot(p[0]-w[0],p[1]-w[1]);if(t<d){d=t;grab=key}}if(grab){canvas.setPointerCapture(e.pointerId);move(grab,w)}});
+    canvas.addEventListener('pointermove',e=>{if(grab)move(grab,where(e))});
+    for(const event of ['pointerup','pointercancel'])canvas.addEventListener(event,()=>grab=null);
+  }
+
+  function arithmetic(){
+    const state={mode:'add',a:1.7,b:1.25};let view=null;
+    const xAxis=join([0,0],[1,0]),yAxis=join([0,0],[0,1]);
+    function calculate(){
+      const {a,b}=state,aux=[.55,1.3],top=parallelThrough(xAxis,aux);
+      // Sum: translate the triangle 0, b, aux along the line by a, using parallels only.
+      const aux2=meet(parallelThrough(join([0,0],aux),[a,0]),top),sum=meet(parallelThrough(join([b,0],aux),aux2),xAxis)[0];
+      // Product: the parallel through a to the line joining 1 and b′ = (0,b).
+      const product=meet(parallelThrough(join([1,0],[0,b]),[a,0]),yAxis)[1],productBA=meet(parallelThrough(join([1,0],[0,a]),[b,0]),yAxis)[1];
+      return {aux,aux2,sum,product,productBA};
+    }
+    function draw(){
+      const {a,b}=state,d=calculate(),mode=state.mode,vals=[a,b,d.product,d.productBA],g=chart(el('scene'),mode==='add'?[Math.min(-2.6,d.sum-.5),Math.max(3,d.sum+.5),-.7,1.9]:[-2.6,3,Math.min(-.8,...vals)-.5,Math.max(2.4,...vals)+.5],['','']);view=g;
+      const [xmin,xmax,ymin,ymax]=g.bounds;g.line([[xmin,0],[xmax,0]],C.ink,1.5);
+      const mark=(p,label,color=C.ink,offset=[-5,24],shape='circle')=>{g.point(p,color,shape,6);g.text(label,p,color,offset)};
+      if(mode==='add'){
+        g.line([[xmin,d.aux[1]],[xmax,d.aux[1]]],'#9ba8b2',1,true);
+        g.line([[0,0],d.aux],C.teal,2.5);g.line([[a,0],d.aux2],C.teal,2.5);g.line([[b,0],d.aux],C.wine,2.5);g.line([[d.sum,0],d.aux2],C.wine,2.5);
+        g.point(d.aux,'#9ba8b2');g.point(d.aux2,'#9ba8b2');mark([0,0],'0');mark([d.sum,0],'a + b',C.gold,[-16,44],'square');mark([a,0],'a',C.teal);mark([b,0],'b',C.wine);
+        el('result').textContent=`a + b = ${n(d.sum,2)}. Same-coloured segments are parallel: the triangle over 0 and b has been slid along the line by a.`;
+      }else{
+        g.line([[0,ymin],[0,ymax]],C.ink,1.5);mark([0,0],'0',C.ink,[-18,22]);mark([1,0],'1');
+        g.line([[1,0],[0,b]],C.teal,2.5);g.line([[a,0],[0,d.product]],C.teal,2.5);
+        if(mode==='comm'){g.line([[1,0],[0,a]],C.wine,2.5,true);g.line([[b,0],[0,d.productBA]],C.wine,2.5,true);g.line([[a,0],[0,a]],'#9ba8b2',1);g.line([[b,0],[0,b]],'#9ba8b2',1);mark([0,a],'a′',C.teal,[-30,5])}
+        mark([0,b],'b′',C.wine,[-30,5]);mark([0,d.product],mode==='comm'?'ab = ba':'ab',C.gold,[12,5],'square');mark([a,0],'a',C.teal);mark([b,0],'b',C.wine);
+        el('result').textContent=mode==='comm'?`a·b = ${n(d.product,3)} and b·a = ${n(d.productBA,3)}. The solid and the dashed construction end at the same point: that coincidence is Pappus's theorem.`:`a·b = ${n(d.product,2)}. The two teal lines are parallel: similar triangles with ratio a.`;
+      }
+      for(const k of ['a','b']){el(k).value=state[k];el(k+'Value').textContent=`${k} = ${n(state[k],2)}`}
+    }
+    const text={add:'Choose any helper point above the line. Join it to 0 and to b. Through a, draw the parallel to the first segment up to the dashed parallel; from there, the parallel to the second segment comes down at a + b. Only joining points and drawing parallels is used — and a parallel is a line meeting another at infinity.',
+      mul:'A second axis carries a copy b′ of b. Join 1 to b′. The parallel through a meets the second axis at ab. Coordinates check it: the line through (1, 0) and (0, b) is y = b(1 − x), so the parallel through (a, 0) is y = b(a − x).',
+      comm:'Do the construction twice: a times b (solid) and b times a (dashed). The grey lines join each number to its copy and are parallel. With them, the six lines form a Pappus configuration; Pappus\'s theorem says the two constructions land on the same point. In a geometry where Pappus fails, ab ≠ ba.'};
+    const clamp=v=>Math.max(-2.2,Math.min(2.6,Math.round(v*100)/100));
+    function set(key,v){state[key]=clamp(v);draw()}
+    el('mode').addEventListener('change',()=>{state.mode=el('mode').value;el('explanation').textContent=text[state.mode];draw()});
+    for(const k of ['a','b'])el(k).addEventListener('input',()=>set(k,+el(k).value));
+    el('reset').addEventListener('click',()=>{Object.assign(state,{a:1.7,b:1.25});draw()});
+    grabber(el('scene'),()=>({a:[state.a,0],b:[state.b,0]}),q=>view.inv(q),(key,w)=>set(key,w[0]));
+    el('explanation').textContent=text.add;window.lesson={state,calculate,draw,set};observe(['scene'],draw);
+  }
+
+  // Complex numbers as pairs, enough for quadratics and cubics.
+  const cadd=(a,b)=>[a[0]+b[0],a[1]+b[1]],csub=(a,b)=>[a[0]-b[0],a[1]-b[1]],cmul=(a,b)=>[a[0]*b[0]-a[1]*b[1],a[0]*b[1]+a[1]*b[0]];
+  const cdiv=(a,b)=>{const d=b[0]*b[0]+b[1]*b[1];return [(a[0]*b[0]+a[1]*b[1])/d,(a[1]*b[0]-a[0]*b[1])/d]};
+  const csqrt=a=>{const r=Math.hypot(...a),s=Math.sqrt((r+a[0])/2),t=Math.sqrt(Math.max(0,(r-a[0])/2));return [s,a[1]<0?-t:t]};
+  function polyRoots(coefficients){ // Durand–Kerner; coefficients from the leading one down, real.
+    const m=coefficients.length-1,c=coefficients.map(v=>v/coefficients[0]);let z=Array.from({length:m},(_,k)=>{const t=.4+2*Math.PI*k/m;return [1.3*Math.cos(t),1.3*Math.sin(t)]});
+    const value=w=>c.reduce((s,v)=>cadd(cmul(s,w),[v,0]),[0,0]);
+    for(let it=0;it<400;it++)z=z.map((w,i)=>{let d=[1,0];z.forEach((v,j)=>{if(j!==i)d=cmul(d,csub(w,v))});return csub(w,cdiv(value(w),d))});
+    return z;
+  }
+  function bezout(){
+    const modes={
+      cubic:{label:'Line height c',min:-1.8,max:1.8,start:.3,special:2*Math.pow(1.4/3,1.5),specialLabel:'Show tangency',degrees:[1,3],names:'the line y = 0.4x + c and the cubic y = x³ − x',
+        text:'Substituting the line into the cubic gives x³ − 1.4x − c = 0: always three roots over ℂ, counted with multiplicity. As the line rises, two real intersections merge into one tangent point and then separate into a conjugate pair of nonreal points.'},
+      conics:{label:'Shift p of the second ellipse',min:-3.4,max:3.4,start:0,special:1,specialLabel:'Show tangency',degrees:[2,2],names:'the ellipses x²/4 + y² = 1 and (x − p)² + y²/4 = 1',
+        text:'Eliminating y² leaves a quadratic in x, and each root x has two values of y: four intersections in all. At p = ±1 the ellipses touch at a point where y = 0 and the two values of y coincide: that point counts twice. When the ellipses separate, all four points are still there, with nonreal coordinates.'},
+      circles:{label:'Half-distance p between centres',min:.2,max:1.8,start:.6,special:1,specialLabel:'Show tangency',degrees:[2,2],names:'the unit circles centred at (−p, 0) and (p, 0)',
+        text:'Two circles are conics, yet they never meet in more than two points of the plane. Homogenize: every circle X² + Y² + (lower terms)·Z = 0 contains the two points [1 : i : 0] and [1 : −i : 0] at infinity. Those two are always shared, so only two intersections are left for the affine plane.'},
+      parabola:{label:'Position c of the vertical line',min:-1.8,max:1.8,start:.8,special:0,specialLabel:'Line through the vertex',degrees:[1,2],names:'the vertical line x = c and the parabola y = x²',
+        text:'A vertical line meets the parabola in one point, not two. Homogenize: Y Z = X² and X = c Z. Besides [c : c² : 1] they share the point [0 : 1 : 0] at infinity — the direction in which the parabola opens. Vertical lines are exactly the lines through that point.'}};
+    const state={mode:'cubic',parameter:.3};
+    const isReal=p=>Math.abs(p.x[1])<1e-6&&Math.abs(p.y[1])<1e-6;
+    function calculate(){
+      const v=state.parameter,mode=state.mode;let raw=[],infinity=[];
+      if(mode==='cubic')raw=polyRoots([1,0,-1.4,-v]).map(x=>({x,y:cadd(cmul([.4,0],x),[v,0])}));
+      else if(mode==='conics'){const a=15/16,b=-2*v,c=v*v-.75,s=csqrt([b*b-4*a*c,0]);for(const sign of [1,-1]){const x=cdiv(cadd([-b,0],cmul([sign,0],s)),[2*a,0]),y=csqrt(csub([1,0],cmul([.25,0],cmul(x,x))));raw.push({x,y},{x,y:cmul([-1,0],y)})}}
+      else if(mode==='circles'){const y=csqrt([1-v*v,0]);raw=[{x:[0,0],y},{x:[0,0],y:cmul([-1,0],y)}];infinity=['[1 : i : 0]','[1 : −i : 0]']}
+      else{raw=[{x:[v,0],y:[v*v,0]}];infinity=['[0 : 1 : 0]']}
+      const points=[];for(const p of raw){const q=points.find(q=>Math.hypot(q.x[0]-p.x[0],q.x[1]-p.x[1],q.y[0]-p.y[0],q.y[1]-p.y[1])<2e-3);if(q)q.multiplicity++;else points.push({...p,multiplicity:1})}
+      const count=f=>points.filter(f).reduce((s,p)=>s+p.multiplicity,0),[d,e]=modes[mode].degrees;
+      return {points,infinity,real:count(isReal),nonreal:count(p=>!isReal(p)),atInfinity:infinity.length,product:d*e,total:count(()=>true)+infinity.length};
+    }
+    function draw(){
+      const v=state.parameter,mode=state.mode,data=calculate(),a=chart(el('left'),[-3,3,-2.6,2.6],['x','y']),b=chart(el('right'),[-2.4,2.4,-2.4,2.4],['Re x','Im x']);
+      const ellipse=(cx,rx,ry)=>circle().map(([x,y])=>[cx+rx*x,ry*y]),xs=Array.from({length:241},(_,i)=>-3+i/40);
+      if(mode==='cubic'){a.line(xs.map(x=>[x,x**3-x]).filter(p=>Math.abs(p[1])<3),C.teal,3);a.line([[-3,-1.2+v],[3,1.2+v]],C.wine,2.5)}
+      else if(mode==='conics'){a.line(ellipse(0,2,1),C.teal,3);a.line(ellipse(v,1,2),C.wine,3)}
+      else if(mode==='circles'){a.line(ellipse(-v,1,1),C.teal,3);a.line(ellipse(v,1,1),C.wine,3)}
+      else{a.line(xs.map(x=>[x,x*x]).filter(p=>p[1]<3),C.teal,3);a.line([[v,-2.6],[v,2.6]],C.wine,2.5)}
+      for(const p of data.points){const real=isReal(p),r=p.multiplicity>1?9:6;if(real)a.point([p.x[0],p.y[0]],C.ink,'circle',r);b.point(p.x,real?C.ink:C.gold,real?'circle':'square',r);if(p.multiplicity>1)b.text(`×${p.multiplicity}`,p.x,C.ink,[12,-10])}
+      el('parameterValue').textContent=n(v,2);
+      const parts=[`${data.real} real`,`${data.nonreal} nonreal`,`${data.atInfinity} at infinity`];
+      el('result').textContent=`${parts.join(' + ')} = ${data.total} = ${modes[mode].degrees.join(' · ')}.`+(data.infinity.length?` At infinity: ${data.infinity.join(', ')}.`:'');
+    }
+    function configure(){
+      const m=modes[state.mode];Object.assign(el('parameter'),{min:m.min,max:m.max,value:state.parameter});el('paramLabel').textContent=m.label;el('special').textContent=m.specialLabel;
+      el('leftCaption').textContent=`The real picture of ${m.names}. Round markers: real intersections; a large marker counts twice.`;el('explanation').textContent=m.text;draw();
+    }
+    el('mode').addEventListener('change',()=>{state.mode=el('mode').value;state.parameter=modes[state.mode].start;configure()});
+    el('parameter').addEventListener('input',()=>{state.parameter=+el('parameter').value;draw()});
+    el('special').addEventListener('click',()=>{state.parameter=modes[state.mode].special;el('parameter').value=state.parameter;draw()});
+    el('reset').addEventListener('click',()=>{state.parameter=modes[state.mode].start;configure()});
+    window.lesson={state,calculate,draw,polyRoots};observe(['left','right'],configure);
+  }
+
+  function exponential(){
+    const state={x:.3,y:.8,copies:true};let view=null;const TAU=2*Math.PI;
+    function calculate(){const r=Math.exp(state.x),w=[r*Math.cos(state.y),r*Math.sin(state.y)],fibre=[-2,-1,0,1,2].map(k=>[state.x,state.y+TAU*k]);
+      return {w,modulus:r,fibre,error:Math.max(...fibre.map(z=>Math.hypot(Math.exp(z[0])*Math.cos(z[1])-w[0],Math.exp(z[0])*Math.sin(z[1])-w[1])))}}
+    function draw(){
+      const d=calculate(),a=chart(el('left'),[-9,9,-9,9],['Re z','Im z']),b=chart(el('right'),[-3.6,3.6,-3.6,3.6],['Re w','Im w']);view=a;
+      for(const k of [-1,0,1])a.line([[-9,TAU*k-Math.PI],[9,TAU*k-Math.PI]],C.grid,1,true);
+      a.line([[state.x,-9],[state.x,9]],'#9fcacc',2);a.line([[-9,state.y],[9,state.y]],'#dba8b6',2);
+      a.line([[state.x,state.y],[state.x,state.y+TAU]],C.teal,4);
+      if(state.copies)for(const z of d.fibre)if(Math.abs(z[1])<9)a.point(z,C.gold,'square',5);
+      a.point([state.x,state.y],C.ink,'circle',8);a.text('z',[state.x,state.y],C.ink,[12,-10]);
+      b.line(circle(d.modulus),C.teal,3);b.line([[0,0],mul(d.w,3.6/Math.max(d.modulus,1e-9))],'#dba8b6',2);b.line(circle(1),C.grid,1,true);
+      b.point(d.w,C.ink,'circle',8);b.text('w = eᶻ',d.w,C.ink,[12,-10]);
+      el('xValue').textContent=`x = ${n(state.x,2)}`;el('yValue').textContent=`y = ${n(state.y,2)} = ${n(state.y/Math.PI,2)}π`;el('x').value=state.x;el('y').value=state.y;
+      el('result').textContent=`eᶻ = ${complex(...d.w)}, with |eᶻ| = eˣ = ${n(d.modulus,3)}. Every gold square z + 2πik has this same image.`;
+    }
+    function set(x,y){state.x=Math.max(-2,Math.min(1.25,x));state.y=Math.max(-8.5,Math.min(8.5,y));draw()}
+    el('x').addEventListener('input',()=>set(+el('x').value,state.y));el('y').addEventListener('input',()=>set(state.x,+el('y').value));
+    el('copies').addEventListener('change',()=>{state.copies=el('copies').checked;draw()});
+    el('reset').addEventListener('click',()=>set(.3,.8));
+    grabber(el('left'),()=>({z:[state.x,state.y]}),q=>view.inv(q),(key,w)=>set(Math.round(w[0]*100)/100,Math.round(w[1]*100)/100));
+    window.lesson={state,calculate,draw,set};observe(['left','right'],draw);
+  }
+
   const demo=document.body.dataset.demo;
-  if(demo==='intersections')intersections();else if(demo==='desargues')desargues();else if(demo==='branching')branching();
+  const demos={intersections,desargues,branching,arithmetic,bezout,exponential};
+  if(demos[demo])demos[demo]();
 })();
