@@ -86,3 +86,29 @@ setting generators through each page's console interface (`lattice.setA`,
 interaction rules, it reads pixels back off the WebGL canvas and checks the
 property the lessons rest on: points of a common orbit must receive the
 *identical* color, and points of distinct orbits must not.
+
+## Algebra and geometry exhibits
+
+`web/algebra-geometry/` is the canonical home of three reusable exhibits:
+
+- `intersections.html`: circle/line intersections, tangency, nonreal roots,
+  and the projective intersection of parallel affine lines.
+- `desargues.html`: perspective triangles in two spatial planes and the same
+  configuration after central projection.
+- `branching.html`: continuous square-root tracking around a branch value.
+
+Open `web/algebra-geometry/index.html` directly from disk. This group shares its
+own local `style.css` and `exhibits.js`; all files stay together, and no network
+or third-party library is needed. The Pages workflow uploads this directory
+with the rest of `web/`, giving the canonical public home
+`https://supernumero.us/erlangen-program/algebra-geometry/` after deployment.
+The root lesson index links to the group.
+
+These sources belong here, independently of any talk or course using them.
+The reusable Beamer sources and figure generators live in `talks`; courses keep
+only frozen slide PDFs and link to the demonstrations.
+
+Run `npm run test:algebra-geometry` for the group's Playwright checks; `npm test`
+also includes them. `PLAYWRIGHT_CHANNEL=chrome` selects installed Chrome when
+needed; otherwise the standard Playwright Chromium is used. `QA_DIR` can set
+the screenshot output directory (the default is under the system temporary directory).
