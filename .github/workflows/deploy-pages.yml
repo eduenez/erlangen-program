@@ -23,11 +23,13 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+# Two jobs, not one (23 Nov 2026): with upload and deploy as consecutive steps
+# of a single job, deploy-pages repeatedly asked for the "github-pages" artifact
+# before GitHub had registered it ("No artifacts named github-pages were
+# found") and the run had to be re-run by hand. A separate deploy job starts
+# only after the upload job, and its artifact, are complete.
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -41,6 +43,13 @@ jobs:
         with:
           path: web
 
+  deploy:
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
