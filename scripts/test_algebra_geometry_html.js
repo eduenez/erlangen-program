@@ -15,7 +15,7 @@ const out=path.resolve(process.env.QA_DIR||require('node:os').tmpdir()+'/erlange
   assert.equal(await page.locator('.talks a[href$=".pdf"]').count(),6);
   for(const f of ['geometry-and-algebra-slides','geometry-and-algebra-handout','functions-and-transcendence-slides','functions-and-transcendence-handout'])
    assert.ok(await page.locator(`.talks a[href$="/${f}.pdf"]`).count()>=1,f);
-  assert.equal(await page.locator('.links:not(.talks) > section > a').count(),7);
+  assert.equal(await page.locator('.links:not(.talks) > section > a').count(),8);
   await page.screenshot({path:path.join(out,'index.png'),fullPage:true});
   await open('intersections');
   await set('parameter',0);assert.equal(await page.evaluate(()=>lesson.calculate().realCount),2);
@@ -94,6 +94,27 @@ const out=path.resolve(process.env.QA_DIR||require('node:os').tmpdir()+'/erlange
   await page.locator('#special').click();{const d=await proj();assert.ok(d.horizontal&&near(d.h,[1,0,0])&&d.arcs.every(g=>near(g.u.map(Math.abs),[1,0,0])),'parallel lines meet on the equator at [1:0:0]')}
   await page.locator('#sphere').check();await page.locator('#azimuth').focus();await page.keyboard.press('ArrowRight');assert.equal(await page.evaluate(()=>lesson.state.azimuth),-17);
   await page.screenshot({path:path.join(out,'projective-parallel-sphere.png'),fullPage:true});
+  // The line at infinity is a choice: one ellipse, a movable line, and the map sending that line to infinity.
+  await open('conics');
+  const con=()=>page.evaluate(()=>{const d=lesson.calculate(),pts=Array.from({length:40},(_,i)=>[lesson.A*Math.cos(.1+i*.157),lesson.B*Math.sin(.1+i*.157)]);
+   return {type:d.type,real:d.real,disc:d.discriminant,h:d.h,d:d.d,hits:d.hits.map(q=>d.den(q)),centre:d.centre,
+    // every image point lies on the image conic; three collinear points stay collinear
+    residual:Math.max(...pts.filter(p=>Math.abs(d.den(p))>.05).map(p=>{const [x,y]=d.image(p);return Math.abs((d.d*x/lesson.A)**2+(d.d*y/lesson.B)**2-(d.d+x*d.nrm[0]+y*d.nrm[1])**2)/(1+x*x+y*y)})),
+    collinear:(()=>{const [p,q,r]=[[.3,.2],[1.1,-.4],[-.5,.8]].map(d.image);return Math.abs((q[0]-p[0])*(r[1]-p[1])-(q[1]-p[1])*(r[0]-p[0]))})()}});
+  {const c=await con();assert.ok(c.type==='ellipse'&&c.real===0&&c.disc<0&&c.residual<1e-9&&c.collinear<1e-9)}
+  await page.screenshot({path:path.join(out,'conics-ellipse.png'),fullPage:true});
+  await page.locator('#special').click();{const c=await con();assert.ok(c.type==='parabola'&&c.real===1&&Math.abs(c.disc)<1e-9&&Math.abs(c.hits[0])<1e-9&&c.residual<1e-9,'a tangent line gives a parabola')}
+  await page.screenshot({path:path.join(out,'conics-parabola.png'),fullPage:true});
+  await set('d',.9);{const c=await con();assert.ok(c.type==='hyperbola'&&c.real===2&&c.disc>0&&c.hits.every(k=>Math.abs(k)<1e-9)&&c.residual<1e-9&&c.collinear<1e-9,'a secant line gives a hyperbola')}
+  await page.screenshot({path:path.join(out,'conics-hyperbola.png'),fullPage:true});
+  await set('alpha',60);await set('d',1.15);{const c=await con();assert.ok(c.type==='parabola'&&Math.abs(c.d-c.h)<1e-12,'the distance slider snaps to tangency')}
+  await set('alpha',-130);await set('d',.7);{const c=await con();assert.ok(c.type==='hyperbola'&&c.residual<1e-9&&c.collinear<1e-9)}
+  await page.screenshot({path:path.join(out,'conics-oblique.png'),fullPage:true});
+  await page.locator('#reset').click();
+  {const box=await page.locator('#left').boundingBox(),at=await page.evaluate(()=>{const r=document.getElementById('left').getBoundingClientRect(),s=Math.min((r.width-90)/6.8,(r.height-90)/5);return [r.width/2+2.4*s,r.height/2,s]});
+   await page.mouse.move(box.x+at[0],box.y+at[1]);await page.mouse.down();await page.mouse.move(box.x+at[0]-1.4*at[2],box.y+at[1],{steps:5});await page.mouse.up();
+   const c=await con();assert.ok(c.type==='hyperbola'&&Math.abs(c.d-1)<.05,'dragging the line through the ellipse')}
+  await page.locator('#old').uncheck();assert.equal(await page.evaluate(()=>lesson.state.old),false);
   await open('exponential');assert.ok(await page.evaluate(()=>lesson.calculate().error<1e-9));
   await page.evaluate(()=>lesson.set(0,Math.PI));r=await page.evaluate(()=>lesson.calculate());assert.ok(Math.abs(r.w[0]+1)<1e-9&&Math.abs(r.w[1])<1e-9&&r.error<1e-9);
   await page.evaluate(()=>lesson.set(.3,.8));await page.screenshot({path:path.join(out,'exponential.png'),fullPage:true});
@@ -104,11 +125,11 @@ const out=path.resolve(process.env.QA_DIR||require('node:os').tmpdir()+'/erlange
   for(const turns of [.125,.3,.75,1.333,1.875]){await set('turns',turns);assert.ok(await page.evaluate(()=>lesson.calculate().error<1e-10))}
   await set('radius',1.8);assert.ok(await page.evaluate(()=>lesson.calculate().error<1e-10));
   await page.setViewportSize({width:390,height:844});
-  for(const name of ['intersections','desargues','branching','arithmetic','bezout','exponential','projective-plane']){
+  for(const name of ['intersections','desargues','branching','arithmetic','bezout','exponential','projective-plane','conics']){
    await open(name);assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
    const pixels=await page.locator('canvas').first().evaluate(c=>{const x=c.getContext('2d'),a=x.getImageData(0,0,c.width,c.height).data;let n=0;for(let i=0;i<a.length;i+=4)if(a[i]<220&&a[i+1]<220&&a[i+2]<220)n++;return n});assert.ok(pixels>100);
    await page.screenshot({path:path.join(out,name+'-mobile.png'),fullPage:true});
   }
-  assert.deepEqual(errors,[]);console.log('Passed: intersection counts, infinity, spatial and planar incidences under dragging, ruler arithmetic, Bezout totals, the hemisphere model of the projective plane, exponential fibres, root continuation, keyboard control, mobile layout, and browser runtime.');
+  assert.deepEqual(errors,[]);console.log('Passed: intersection counts, infinity, spatial and planar incidences under dragging, ruler arithmetic, Bezout totals, the hemisphere model of the projective plane, the choice of the line at infinity, exponential fibres, root continuation, keyboard control, mobile layout, and browser runtime.');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

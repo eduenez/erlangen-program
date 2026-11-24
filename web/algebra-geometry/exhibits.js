@@ -390,7 +390,67 @@
     window.lesson={state,calculate,draw,set};observe(['scene','right'],configure);
   }
 
+  function conics(){
+    // One ellipse x²/A² + y²/B² = 1 and a movable line L: x cos α + y sin α = d. The projective map
+    // T(p) = d p/(d − p·n) sends L to infinity, fixes the centre and moves each point along its ray from the centre.
+    const A=1.5,B=1,DMIN=.4,DMAX=3.2,rad=v=>v*Math.PI/180;
+    const start={alpha:0,d:2.4,old:true},state={...start};
+    function calculate(){
+      const a=rad(state.alpha),d=state.d,nrm=[Math.cos(a),Math.sin(a)],h=Math.hypot(A*nrm[0],B*nrm[1]);
+      const type=Math.abs(d-h)<1e-9?'parabola':d>h?'ellipse':'hyperbola';
+      // Points of the ellipse (A cos φ, B sin φ) on L: h cos(φ − φ0) = d.
+      const phi0=Math.atan2(B*nrm[1],A*nrm[0]),gap=type==='ellipse'?null:type==='parabola'?0:Math.acos(d/h);
+      const angles=gap===null?[]:gap===0?[phi0]:[phi0-gap,phi0+gap],hits=angles.map(f=>[A*Math.cos(f),B*Math.sin(f)]);
+      const den=p=>d-p[0]*nrm[0]-p[1]*nrm[1],image=p=>mul(p,d/den(p));
+      // The image conic is (d x/A)² + (d y/B)² = (d + x cos α + y sin α)²; its type is the sign of this discriminant.
+      const conic=[d*d/(A*A)-nrm[0]**2,-2*nrm[0]*nrm[1],d*d/(B*B)-nrm[1]**2],discriminant=conic[1]**2-4*conic[0]*conic[2];
+      // The tangents at the two points of L meet at the pole of L; their images, the asymptotes, meet at its image.
+      const centre=type==='hyperbola'?mul([A*A*nrm[0],B*B*nrm[1]],d/(d*d-h*h)):null;
+      return {type,nrm,d,h,phi0,gap,hits,den,image,conic,discriminant,centre,real:hits.length};
+    }
+    let left=null;
+    function draw(){
+      const data=calculate(),{nrm,d}=data,along=[-nrm[1],nrm[0]],foot=mul(nrm,d);
+      el('dValue').textContent=`d = ${n(d,2)}`;el('alphaValue').textContent=`α = ${n(state.alpha,0)}°`;
+      left=chart(el('left'),[-3.4,3.4,-2.5,2.5],['x','y']);
+      const R=6.5,right=chart(el('right'),[-R,R,-R*.74,R*.74],['x','y']);
+      // The conic in runs of constant side of L, each drawn in both panels.
+      const count=1440,first=data.phi0+(data.gap||0);let run=[],side=0;
+      const flush=()=>{if(run.length<2){run=[];return}const color=side>0?C.teal:C.wine;left.line(run,color,3.5);
+        let piece=[];const out=()=>{if(piece.length>1)right.line(piece,color,3.5);piece=[]};
+        for(const p of run){const k=data.den(p);if(Math.abs(k)<1e-7){out();continue}const q=data.image(p);if(Math.hypot(...q)>12*R)out();else piece.push(q)}out();run=[]};
+      for(let i=0;i<=count;i++){const f=first+2*Math.PI*i/count,p=[A*Math.cos(f),B*Math.sin(f)],k=data.den(p),sg=k>1e-9?1:k<-1e-9?-1:0;
+        if(sg===0){run.push(p);flush();run=[p];continue}
+        if(side&&sg!==side){flush()}side=sg;run.push(p)}
+      flush();
+      right.line(Array.from({length:181},(_,i)=>[A*Math.cos(i*Math.PI/90),B*Math.sin(i*Math.PI/90)]),C.grid,1.5,true);
+      left.line([add(foot,mul(along,-9)),add(foot,mul(along,9))],C.gold,3);left.point(foot,C.gold,'square',6);
+      left.text('L',add(foot,mul(along,1.9)),C.gold,[10,-6]);
+      for(const q of data.hits){
+        if(data.type==='hyperbola'){const t=[-q[1]*A/B,q[0]*B/A];left.line([add(q,mul(t,-9)),add(q,mul(t,9))],'#8f9ba6',1.3,true);
+          right.line([add(data.centre,mul(q,-30)),add(data.centre,mul(q,30))],'#8f9ba6',1.3,true)}
+        left.point(q,C.gold,'circle',6)}
+      left.point([0,0],C.ink,'circle',3.5);right.point([0,0],C.ink,'circle',3.5);
+      if(state.old){const g=mul(nrm,-d);right.line([add(g,mul(along,-30)),add(g,mul(along,30))],C.ink,1.5,true);
+        const at=add(g,mul(along,Math.abs(along[1])>.5?-R*.5/Math.abs(along[1]):0));right.text('the old line at infinity',Math.abs(at[0])<R-2&&Math.abs(at[1])<R*.7?at:g,C.ink,[8,-8])}
+      const words={ellipse:'L misses the conic: no real point of it goes to infinity, so it stays closed. In the new affine plane it is an ellipse.',
+        parabola:'L touches the conic. The point of tangency, counted twice, has gone to infinity, and the curve has opened up: a parabola.',
+        hyperbola:'L cuts the conic in two points. Both have gone to infinity; the arc beyond L (rose) returns from the opposite side, and the tangents at the two points have become the asymptotes: a hyperbola.'};
+      el('result').textContent=words[data.type];
+    }
+    const snap=d=>{const h=calculate().h;return Math.abs(d-h)<=.0051?h:d};
+    function set(values){Object.assign(state,values);state.d=Math.max(DMIN,Math.min(DMAX,state.d));el('d').value=state.d;el('alpha').value=state.alpha;el('old').checked=state.old;draw()}
+    el('d').addEventListener('input',()=>{state.d=snap(+el('d').value);draw()});
+    el('alpha').addEventListener('input',()=>{state.alpha=+el('alpha').value;state.d=snap(state.d);draw()});
+    el('old').addEventListener('change',()=>{state.old=el('old').checked;draw()});
+    el('special').addEventListener('click',()=>set({d:calculate().h}));
+    el('reset').addEventListener('click',()=>set({...start}));
+    grabber(el('left'),()=>({L:mul(calculate().nrm,state.d)}),q=>left.inv(q),(key,w)=>{const r=Math.hypot(...w);if(r<1e-6)return;
+      state.alpha=Math.atan2(w[1],w[0])*180/Math.PI;const h=calculate().h,d=Math.max(DMIN,Math.min(DMAX,r));set({d:Math.abs(d-h)<.05?h:d})});
+    window.lesson={state,calculate,draw,set,A,B};observe(['left','right'],draw);
+  }
+
   const demo=document.body.dataset.demo;
-  const demos={intersections,desargues,branching,arithmetic,bezout,exponential,projective};
+  const demos={intersections,desargues,branching,arithmetic,bezout,exponential,projective,conics};
   if(demos[demo])demos[demo]();
 })();
